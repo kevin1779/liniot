@@ -342,6 +342,7 @@ async function viewDevice(view) {
     <div class="card">
       <div class="chart-card-head"><div class="chart-title">遥测数据</div>
         <span class="head-actions"><span id="metric-tabs"></span>
+          <span id="agg-tabs"></span>
           <a id="export-csv" class="link" hidden download>导出 CSV</a></span></div>
       <canvas id="device-chart" class="chart" style="height:240px"></canvas>
     </div>`;
@@ -353,10 +354,29 @@ async function viewDevice(view) {
     const series = await api("/api/overview/series?limit=1");
     metrics = Object.keys((series[id] || {}).metrics || {});
   } catch (e) { metrics = []; }
+  // 聚合视图：null = 原始点；"1m"/"5m"/"15m"/"1h" = 服务端窗口降采样
+  const aggTabs = $("#agg-tabs");
+  let currentMetric = null, currentWindow = null;
+  const setAgg = (w) => {
+    currentWindow = (currentWindow === w) ? null : w;
+    aggTabs.querySelectorAll("button").forEach((x) => (x.style.color = ""));
+    if (currentWindow) {
+      const btn = aggTabs.querySelector(`[data-agg="${currentWindow}"]`);
+      if (btn) btn.style.color = "#3b82f6";
+    }
+  };
   async function loadMetric(metric) {
-    const points = await api(`/api/devices/${encodeURIComponent(id)}/telemetry`
-      + `?metric=${encodeURIComponent(metric)}&limit=300`);
-    drawChart(chartCanvas, points, metricStyle(metric).color);
+    currentMetric = metric;
+    if (currentWindow) {
+      const buckets = await api(`/api/devices/${encodeURIComponent(id)}/telemetry/aggregate`
+        + `?metric=${encodeURIComponent(metric)}&window=${currentWindow}`);
+      drawChart(chartCanvas, buckets.map((b) => ({ ts: b.ts, value: b.avg })),
+                metricStyle(metric).color);
+    } else {
+      const points = await api(`/api/devices/${encodeURIComponent(id)}/telemetry`
+        + `?metric=${encodeURIComponent(metric)}&limit=300`);
+      drawChart(chartCanvas, points, metricStyle(metric).color);
+    }
   }
   // 导出按钮跟随当前选中的指标，有数据才显示
   const exportLink = $("#export-csv");
@@ -369,6 +389,10 @@ async function viewDevice(view) {
     ? metrics.map((m) => `<button class="link" data-metric="${esc(m)}"
         style="${m === (metrics[0] || "") ? "color:#3b82f6" : ""}">${metricStyle(m).label}</button>`).join("")
     : `<span class="muted">暂无遥测数据</span>`;
+  aggTabs.innerHTML = metrics.length
+    ? ["1m", "5m", "15m", "1h"].map((w) =>
+        `<button class="link" data-agg="${w}" title="按 ${w} 窗口聚合（avg）">${w}</button>`).join("")
+    : "";
   if (metrics.length) { setExport(metrics[0]); exportLink.hidden = false; loadMetric(metrics[0]); }
   tabs.querySelectorAll("[data-metric]").forEach((b) =>
     b.addEventListener("click", () => {
@@ -376,6 +400,11 @@ async function viewDevice(view) {
       b.style.color = "#3b82f6";
       setExport(b.dataset.metric);
       loadMetric(b.dataset.metric);
+    }));
+  aggTabs.querySelectorAll("[data-agg]").forEach((b) =>
+    b.addEventListener("click", () => {
+      setAgg(b.dataset.agg);
+      if (currentMetric) loadMetric(currentMetric);
     }));
 
   view.querySelectorAll(".toggle").forEach((btn) =>

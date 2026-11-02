@@ -21,6 +21,8 @@ from .service import METRIC_RE, DeviceService, UnknownDevice
 
 logger = logging.getLogger("liniot.api")
 
+WINDOW_MAP = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
+
 
 def build_router(store, bus, rules, devices: DeviceService, config: Config) -> APIRouter:
     router = APIRouter(prefix="/api")
@@ -126,6 +128,18 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config) -> A
 
         return StreamingResponse(rows(), media_type="text/csv",
                                  headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+    @router.get("/devices/{device_id}/telemetry/aggregate")
+    def aggregate_telemetry(device_id: str, metric: str | None = None,
+                            window: str = "5m") -> list[dict[str, Any]]:
+        """按时间窗聚合遥测（avg/min/max/count），大时间跨度曲线用。"""
+        device_or_404(device_id)
+        seconds = WINDOW_MAP.get(window)
+        if seconds is None:
+            raise HTTPException(422, f"window 仅支持: {', '.join(WINDOW_MAP)}")
+        if metric is not None and not METRIC_RE.match(metric):
+            raise HTTPException(422, f"metric 不合法: {metric}")
+        return store.aggregate_telemetry(device_id, metric, seconds)
 
     @router.post("/devices/{device_id}/status")
     def post_status(device_id: str, body: StatusIn) -> dict[str, Any]:

@@ -177,6 +177,34 @@ def test_telemetry_export_edge_cases(client):
     assert resp.status_code == 422
 
 
+def test_telemetry_aggregate_windows(client):
+    client.post("/api/devices", json={"id": "sensor-1", "name": "s", "type": "sensor"})
+    client.post("/api/devices/sensor-1/telemetry", json={"points": [
+        {"metric": "temperature", "value": 10.0, "ts": 30.0},
+        {"metric": "temperature", "value": 20.0, "ts": 90.0},
+        {"metric": "temperature", "value": 30.0, "ts": 150.0},
+    ]})
+
+    one_min = client.get("/api/devices/sensor-1/telemetry/aggregate",
+                         params={"metric": "temperature", "window": "1m"}).json()
+    assert [b["ts"] for b in one_min] == [0, 60, 120]
+    assert [b["count"] for b in one_min] == [1, 1, 1]
+
+    five_min = client.get("/api/devices/sensor-1/telemetry/aggregate",
+                          params={"metric": "temperature", "window": "5m"}).json()
+    assert len(five_min) == 1
+    assert (five_min[0]["count"], five_min[0]["avg"], five_min[0]["min"],
+            five_min[0]["max"]) == (3, 20.0, 10.0, 30.0)
+
+    assert client.get("/api/devices/sensor-1/telemetry/aggregate",
+                      params={"window": "1h"}).status_code == 200
+    assert client.get("/api/devices/sensor-1/telemetry/aggregate",
+                      params={"window": "2h"}).status_code == 422
+    assert client.get("/api/devices/ghost/telemetry/aggregate").status_code == 404
+    assert client.get("/api/devices/sensor-1/telemetry/aggregate",
+                      params={"metric": "bad metric!"}).status_code == 422
+
+
 def test_validation_errors(client):
     assert client.post("/api/devices", json={"name": "", "type": "x"}).status_code == 422
     assert client.post("/api/devices", json={"id": "非法ID", "name": "x"}).status_code == 422

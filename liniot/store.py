@@ -179,7 +179,9 @@ class Store:
 
     def insert_telemetry(self, device_id: str, points: list[dict[str, Any]]) -> int:
         now = time.time()
-        rows = [(device_id, p["metric"], float(p["value"]), float(p.get("ts") or now))
+        # ts=0 是合法时间戳，须用显式判空而非 or 兜底
+        rows = [(device_id, p["metric"], float(p["value"]),
+                 float(p["ts"]) if p.get("ts") is not None else now)
                 for p in points]
         with self.lock:
             self.conn.executemany(
@@ -264,6 +266,28 @@ class Store:
             for r in rows:
                 yield {"metric": r["metric"], "value": r["value"], "ts": r["ts"]}
             last_id = rows[-1]["id"]
+
+    def aggregate_telemetry(self, device_id: str, metric: Optional[str] = None,
+                            window: int = 300) -> list[dict[str, Any]]:
+        """按时间桶聚合遥测：返回每 (metric, 桶) 的 count/avg/min/max。
+
+        桶按 floor(ts/window)*window 对齐（UTC 秒）。分组扫描由
+        (device_id, metric, ts) 索引支撑，大表单次查询即可完成降采样，
+        供大时间跨度曲线使用。
+        """
+        sql = ("SELECT metric, CAST(ts / ? AS INTEGER) * ? AS bucket,"
+               " COUNT(*) AS count, AVG(value) AS avg,"
+               " MIN(value) AS min, MAX(value) AS max"
+               " FROM telemetry WHERE device_id=?")
+        params: list[Any] = [window, window, device_id]
+        if metric:
+            sql += " AND metric=?"
+            params.append(metric)
+        sql += " GROUP BY metric, bucket ORDER BY metric, bucket"
+        with self.lock:
+            rows = self.conn.execute(sql, params).fetchall()
+        return [{"metric": r["metric"], "ts": r["bucket"], "count": r["count"],
+                 "avg": r["avg"], "min": r["min"], "max": r["max"]} for r in rows]
 
     def latest_metrics(self) -> dict[tuple[str, str], dict[str, float]]:
         """每个 (device, metric) 的最新值，供 AI 快照与概览使用。"""

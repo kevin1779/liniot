@@ -21,8 +21,7 @@
 
 ## v0.3（规划中，按优先级排序）
 
-- [ ] **时序聚合查询**：按 1m/5m/1h 窗口降采样（avg/min/max），大时间跨度曲线不再全量拉点。
-      涉及：`liniot/store.py`、`docs/api.md`。
+- [x] **时序聚合查询**：按 1m/5m/1h 窗口降采样（avg/min/max），大时间跨度曲线不再全量拉点。
 - [ ] *good first issue* **暗色主题**：把 `web/style.css` 的设计变量抽成
       `:root` / `[data-theme="dark"]` 双主题 + 仪表盘右上角切换按钮。
 - [ ] *good first issue* **CSV 导出**：`GET /api/devices/{id}/telemetry/export`

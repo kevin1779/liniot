@@ -77,6 +77,33 @@ def test_iter_telemetry_streaming(tmp_path):
     assert len(list(store.iter_telemetry("sensor-1", metric="humidity", limit=100))) == 5
 
 
+def test_aggregate_telemetry(tmp_path):
+    """按时间桶聚合：分桶对齐、多指标独立、窗口变化。"""
+    store = Store(tmp_path / "a.db")
+    store.upsert_device("sensor-1", "传感器", "sensor", {})
+    # ts: 0..59（桶 0）+ 60..119（桶 60），window=60
+    points = ([{"metric": "temperature", "value": 20 + i, "ts": float(i)}
+               for i in range(60)]
+              + [{"metric": "temperature", "value": 100.0, "ts": 60.0}]
+              + [{"metric": "humidity", "value": 55.0, "ts": 10.0}])
+    store.insert_telemetry("sensor-1", points)
+
+    rows = store.aggregate_telemetry("sensor-1", "temperature", window=60)
+    assert [r["ts"] for r in rows] == [0, 60]
+    assert rows[0]["count"] == 60
+    assert rows[0]["avg"] == 49.5 and rows[0]["min"] == 20 and rows[0]["max"] == 79
+    assert rows[1]["count"] == 1 and rows[1]["avg"] == 100.0
+
+    # 窗口放大：全部落进同一个桶
+    wide = store.aggregate_telemetry("sensor-1", "temperature", window=3600)
+    assert len(wide) == 1 and wide[0]["count"] == 61
+
+    # 多指标各自独立分桶
+    both = store.aggregate_telemetry("sensor-1", window=60)
+    assert {r["metric"] for r in both} == {"temperature", "humidity"}
+    assert [r["count"] for r in both if r["metric"] == "humidity"] == [1]
+
+
 def test_commands_queue_and_deliver(tmp_path):
     store = Store(tmp_path / "a.db")
     store.upsert_device("light-1", "智能灯", "light", {})

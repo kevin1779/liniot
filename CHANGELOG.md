@@ -5,6 +5,9 @@
 - 遥测 CSV 导出：新增 `GET /api/devices/{id}/telemetry/export` 流式导出接口
   （keyset 分批查询，带 UTF-8 BOM，Excel 直接打开不乱码），设备详情页
   遥测卡片新增导出按钮，链接跟随当前指标；测试增至 60 个
+- 时序聚合查询：新增 `GET /api/devices/{id}/telemetry/aggregate`，支持
+  1m/5m/15m/1h 窗口返回 count/avg/min/max（10 万行 < 100ms）；设备详情页
+  新增聚合视图切换按钮；修复 `ts=0` 被当作缺省时间戳的边界问题；测试增至 62 个
 
 ## 0.2.0 (2026-10-31)
 

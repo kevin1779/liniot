@@ -98,6 +98,24 @@ curl -OJ "http://127.0.0.1:8000/api/devices/sensor-1/telemetry/export?metric=tem
   环形保留约束），给定时导出最近 N 条；记录按写入顺序（id 升序）产出；
 - 设备不存在返回 404，`metric` 含非法字符返回 422。
 
+### `GET /api/devices/{id}/telemetry/aggregate?metric=&window=5m`
+
+按时间窗聚合遥测（服务端降采样，大时间跨度曲线用）：
+
+```bash
+curl "http://127.0.0.1:8000/api/devices/sensor-1/telemetry/aggregate?metric=temperature&window=5m"
+```
+
+```json
+[ { "metric": "temperature", "ts": 1793352000.0, "count": 12,
+    "avg": 24.31, "min": 23.9, "max": 24.8 } ]
+```
+
+- `window` 支持 `1m` / `5m` / `15m` / `1h`，其余值返回 422；
+- 桶按 `floor(ts/window)*window` 对齐（UTC 秒），`ts` 为桶起点；
+- `metric` 省略时返回该设备全部指标，各指标独立分桶；
+- 分组扫描由 `(device_id, metric, ts)` 索引支撑，10 万行 < 100ms（本机基准）。
+
 ### `POST /api/devices/{id}/status`
 
 上报状态/合并属性（设备心跳或布尔属性回报）：
