@@ -10,6 +10,7 @@ import json
 import sqlite3
 import threading
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Optional
 
@@ -225,6 +226,44 @@ class Store:
         with self.lock:
             rows = self.conn.execute(sql, params).fetchall()
         return [{"metric": r["metric"], "value": r["value"], "ts": r["ts"]} for r in reversed(rows)]
+
+    def iter_telemetry(self, device_id: str, metric: Optional[str] = None,
+                       limit: Optional[int] = None,
+                       batch: int = 1000) -> Iterator[dict[str, Any]]:
+        """流式迭代遥测：keyset 分页逐批查询，供 CSV 导出等大结果集场景。
+
+        与 query_telemetry 一次性取全量不同，这里每批查完立即释放锁再产出，
+        导出 10 万行也不会把结果集整个拉进内存。limit 给定时只导出最近 limit 条
+        （通过 OFFSET 定位起点，仍按 id 升序产出）。
+        """
+        last_id = 0
+        if limit is not None and limit > 0:
+            sql = "SELECT id FROM telemetry WHERE device_id=?"
+            params: list[Any] = [device_id]
+            if metric:
+                sql += " AND metric=?"
+                params.append(metric)
+            sql += " ORDER BY id DESC LIMIT 1 OFFSET ?"
+            params.append(limit - 1)
+            with self.lock:
+                row = self.conn.execute(sql, params).fetchone()
+            if row is not None:
+                last_id = row["id"] - 1  # 其后恰为"最近 limit 条"
+        while True:
+            sql = "SELECT id,metric,value,ts FROM telemetry WHERE device_id=? AND id>?"
+            params = [device_id, last_id]
+            if metric:
+                sql += " AND metric=?"
+                params.append(metric)
+            sql += " ORDER BY id LIMIT ?"
+            params.append(batch)
+            with self.lock:
+                rows = self.conn.execute(sql, params).fetchall()
+            if not rows:
+                return
+            for r in rows:
+                yield {"metric": r["metric"], "value": r["value"], "ts": r["ts"]}
+            last_id = rows[-1]["id"]
 
     def latest_metrics(self) -> dict[tuple[str, str], dict[str, float]]:
         """每个 (device, metric) 的最新值，供 AI 快照与概览使用。"""

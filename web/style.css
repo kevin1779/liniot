@@ -152,6 +152,9 @@ button.primary:hover { opacity: .94; color: #fff; }
 button.link { border: none; background: none; color: var(--accent); padding: 2px 6px;
               font-size: 12.5px; box-shadow: none; }
 button.link:hover { text-decoration: underline; }
+a.link { color: var(--accent); font-size: 12.5px; text-decoration: none; white-space: nowrap; }
+a.link:hover { text-decoration: underline; }
+.head-actions { display: flex; align-items: center; gap: 10px; }
 button:disabled { opacity: .45; cursor: not-allowed; }
 
 /* 表单 */

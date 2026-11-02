@@ -341,7 +341,8 @@ async function viewDevice(view) {
       <div class="props">${props}</div></div>` : ""}
     <div class="card">
       <div class="chart-card-head"><div class="chart-title">遥测数据</div>
-        <span id="metric-tabs"></span></div>
+        <span class="head-actions"><span id="metric-tabs"></span>
+          <a id="export-csv" class="link" hidden download>导出 CSV</a></span></div>
       <canvas id="device-chart" class="chart" style="height:240px"></canvas>
     </div>`;
 
@@ -357,16 +358,23 @@ async function viewDevice(view) {
       + `?metric=${encodeURIComponent(metric)}&limit=300`);
     drawChart(chartCanvas, points, metricStyle(metric).color);
   }
+  // 导出按钮跟随当前选中的指标，有数据才显示
+  const exportLink = $("#export-csv");
+  const setExport = (metric) => {
+    exportLink.href = `/api/devices/${encodeURIComponent(id)}/telemetry/export`
+      + `?metric=${encodeURIComponent(metric)}`;
+  };
 
   tabs.innerHTML = metrics.length
     ? metrics.map((m) => `<button class="link" data-metric="${esc(m)}"
         style="${m === (metrics[0] || "") ? "color:#3b82f6" : ""}">${metricStyle(m).label}</button>`).join("")
     : `<span class="muted">暂无遥测数据</span>`;
-  if (metrics.length) loadMetric(metrics[0]);
+  if (metrics.length) { setExport(metrics[0]); exportLink.hidden = false; loadMetric(metrics[0]); }
   tabs.querySelectorAll("[data-metric]").forEach((b) =>
     b.addEventListener("click", () => {
       tabs.querySelectorAll("button").forEach((x) => (x.style.color = ""));
       b.style.color = "#3b82f6";
+      setExport(b.dataset.metric);
       loadMetric(b.dataset.metric);
     }));
 

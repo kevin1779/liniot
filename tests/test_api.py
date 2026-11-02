@@ -131,6 +131,52 @@ def test_scene_rejects_unknown_devices(client):
     assert resp.status_code == 404
 
 
+def test_telemetry_export_csv(client):
+    client.post("/api/devices", json={"id": "sensor-1", "name": "客厅传感器", "type": "sensor"})
+    client.post("/api/devices/sensor-1/telemetry",
+                json={"points": [{"metric": "temperature", "value": 25.5},
+                                 {"metric": "humidity", "value": 60},
+                                 {"metric": "temperature", "value": 26.5}]})
+
+    resp = client.get("/api/devices/sensor-1/telemetry/export",
+                      params={"metric": "temperature"})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/csv")
+    assert "attachment" in resp.headers["content-disposition"]
+    assert 'filename="liniot-sensor-1-temperature.csv"' in resp.headers["content-disposition"]
+
+    # UTF-8 BOM 开头，Excel 按其识别编码；表头之后为该指标的两条数据
+    lines = resp.content.decode("utf-8-sig").strip().splitlines()
+    assert lines[0] == "device_id,metric,value,ts,time"
+    assert len(lines) == 3
+    assert lines[1].startswith("sensor-1,temperature,25.5,")
+    assert lines[2].startswith("sensor-1,temperature,26.5,")
+    assert lines[1].count(",") == 4  # time 列存在
+
+    # 不带 metric 导出全部指标；limit=1 只取最近一条
+    all_rows = client.get("/api/devices/sensor-1/telemetry/export").content
+    assert len(all_rows.decode("utf-8-sig").strip().splitlines()) == 4
+    one = client.get("/api/devices/sensor-1/telemetry/export",
+                     params={"limit": 1}).content.decode("utf-8-sig").strip().splitlines()
+    assert len(one) == 2 and one[1].startswith("sensor-1,temperature,26.5,")
+
+
+def test_telemetry_export_edge_cases(client):
+    client.post("/api/devices", json={"id": "sensor-1", "name": "s", "type": "sensor"})
+
+    # 无数据设备：仅表头
+    empty = client.get("/api/devices/sensor-1/telemetry/export")
+    assert empty.status_code == 200
+    assert empty.content.decode("utf-8-sig").strip().splitlines() == \
+        ["device_id,metric,value,ts,time"]
+
+    # 设备不存在 404；metric 非法 422
+    assert client.get("/api/devices/ghost/telemetry/export").status_code == 404
+    resp = client.get("/api/devices/sensor-1/telemetry/export",
+                      params={"metric": "bad metric!"})
+    assert resp.status_code == 422
+
+
 def test_validation_errors(client):
     assert client.post("/api/devices", json={"name": "", "type": "x"}).status_code == 422
     assert client.post("/api/devices", json={"id": "非法ID", "name": "x"}).status_code == 422
