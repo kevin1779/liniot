@@ -82,6 +82,22 @@ curl -X POST http://127.0.0.1:8000/api/devices/sensor-1/telemetry \
 
 时间升序序列，供绘图；`limit` 上限 2000。
 
+### `GET /api/devices/{id}/telemetry/export?metric=&limit=`
+
+流式导出遥测 CSV（`StreamingResponse`，逐批查询，大结果集不全量驻留内存）：
+
+```bash
+curl -OJ "http://127.0.0.1:8000/api/devices/sensor-1/telemetry/export?metric=temperature&limit=100"
+```
+
+- 响应头 `Content-Disposition: attachment`，文件名 `liniot-{id}[-{metric}].csv`；
+- 带 UTF-8 BOM，Excel 直接打开中文不乱码；
+- 列：`device_id,metric,value,ts,time`。`ts` 为 Unix 时间戳（权威值），
+  `time` 为服务器本地时间，便于直接阅读；
+- `metric` 省略导出全部指标；`limit` 省略导出全部记录（受每设备 20000 条
+  环形保留约束），给定时导出最近 N 条；记录按写入顺序（id 升序）产出；
+- 设备不存在返回 404，`metric` 含非法字符返回 422。
+
 ### `POST /api/devices/{id}/status`
 
 上报状态/合并属性（设备心跳或布尔属性回报）：

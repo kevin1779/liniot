@@ -2,17 +2,22 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 import logging
+import time
+from collections.abc import Iterator
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 
 from . import ai
 from .config import Config
 from .schemas import (ChatIn, DeviceIn, PropertiesIn, RuleIn, RulePatch,
                       SceneIn, ScenePatch, StatusIn, TelemetryIn)
-from .service import DeviceService, UnknownDevice
+from .service import METRIC_RE, DeviceService, UnknownDevice
 
 logger = logging.getLogger("liniot.api")
 
@@ -91,6 +96,36 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config) -> A
         except UnknownDevice:
             raise HTTPException(404, f"设备不存在: {device_id}")
         return {"accepted": count}
+
+    @router.get("/devices/{device_id}/telemetry/export")
+    def export_telemetry(device_id: str, metric: str | None = None,
+                         limit: int | None = None) -> StreamingResponse:
+        """流式导出遥测 CSV（UTF-8 BOM，Excel 直接打开中文不乱码）。"""
+        device_or_404(device_id)
+        if metric and not METRIC_RE.match(metric):
+            raise HTTPException(422, f"metric 不合法: {metric}")
+        limit = max(1, limit) if limit is not None else None
+        filename = f"liniot-{device_id}" + (f"-{metric}" if metric else "") + ".csv"
+
+        def rows() -> Iterator[str]:
+            # 复用单个 StringIO，攒约 64KB 再产出：既保证流式内存有界，
+            # 又避免逐行 yield 造成的小包网络开销
+            buf = io.StringIO()
+            writer = csv.writer(buf, lineterminator="\n")
+            yield "\ufeff"  # UTF-8 BOM：Excel 依据它按 UTF-8 解码
+            writer.writerow(["device_id", "metric", "value", "ts", "time"])
+            for p in store.iter_telemetry(device_id, metric, limit):
+                writer.writerow([device_id, p["metric"], p["value"], p["ts"],
+                                 time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(p["ts"]))])
+                if buf.tell() >= 64 * 1024:
+                    yield buf.getvalue()
+                    buf.seek(0)
+                    buf.truncate()
+            if buf.tell():
+                yield buf.getvalue()
+
+        return StreamingResponse(rows(), media_type="text/csv",
+                                 headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
     @router.post("/devices/{device_id}/status")
     def post_status(device_id: str, body: StatusIn) -> dict[str, Any]:

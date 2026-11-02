@@ -49,6 +49,34 @@ def test_telemetry_query_and_retention(tmp_path):
     assert store.query_telemetry("sensor-1")[-1]["value"] == 49  # 保留最新
 
 
+def test_iter_telemetry_streaming(tmp_path):
+    """流式迭代：分批遍历、指标过滤与"最近 N 条"截取。"""
+    store = Store(tmp_path / "a.db")
+    store.upsert_device("sensor-1", "传感器", "sensor", {})
+    points = ([{"metric": "temperature", "value": 20 + i, "ts": 1000.0 + i}
+               for i in range(30)]
+              + [{"metric": "humidity", "value": 60 + i, "ts": 1000.0 + i}
+                 for i in range(5)])
+    store.insert_telemetry("sensor-1", points)
+
+    # 小批量迭代也能取全量，且按 id 升序
+    rows = list(store.iter_telemetry("sensor-1", batch=7))
+    assert len(rows) == 35
+    assert [r["value"] for r in rows[:3]] == [20, 21, 22]
+    assert rows[-1]["value"] == 64
+
+    # 指标过滤
+    humidity = list(store.iter_telemetry("sensor-1", metric="humidity"))
+    assert len(humidity) == 5 and humidity[0]["value"] == 60
+
+    # limit：最近 N 条（升序产出）
+    latest = list(store.iter_telemetry("sensor-1", metric="temperature", limit=3, batch=2))
+    assert [r["value"] for r in latest] == [47, 48, 49]
+
+    # limit 超过总数时退化为全量
+    assert len(list(store.iter_telemetry("sensor-1", metric="humidity", limit=100))) == 5
+
+
 def test_commands_queue_and_deliver(tmp_path):
     store = Store(tmp_path / "a.db")
     store.upsert_device("light-1", "智能灯", "light", {})
