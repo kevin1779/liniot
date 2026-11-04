@@ -186,6 +186,8 @@ Optional MQTT:
 export LINIOT_MQTT_HOST=broker.emqx.io
 ```
 
+> **Security note**: the current version ships **without authentication** on the HTTP API, MQTT channel and dashboard. Anyone who can reach the port can control devices and read data — keep it inside a trusted LAN or restrict access via firewall / reverse proxy. Token-based auth is on the [ROADMAP](ROADMAP.md).
+
 See the Chinese section above for full configuration, API docs, MQTT protocol, and hardware guides — code comments and API responses are largely language-neutral, and doc files are being translated progressively.
 
 ## Testing
