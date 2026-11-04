@@ -13,6 +13,7 @@ class DeviceIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     type: str = Field(default="generic", max_length=32)
     meta: dict[str, str] = Field(default_factory=dict)
+    group: Optional[str] = Field(default=None, max_length=32)  # 写入 meta["group"]（Issue #3）
 
 
 class TelemetryPoint(BaseModel):

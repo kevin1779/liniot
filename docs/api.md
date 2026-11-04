@@ -42,8 +42,16 @@ curl -X POST http://127.0.0.1:8000/api/devices \
 - `id` 省略时自动生成；同 `id` 重复注册返回 200（更新元数据），首次创建返回 201。
 - `id` 规则：`^[a-z0-9][a-z0-9_-]{0,63}$`。
 - `type` 自由文本，建议 `sensor` / `light` / `switch` / `generic`。
+- `group`（可选，≤32 字符）写入 `meta["group"]`，供设备列表分组过滤；
+  幂等重注册未指定分组时保留原分组，避免设备重启上报把分组弄丢。
 
 ### `GET /api/devices` · `GET /api/devices/{id}` · `DELETE /api/devices/{id}`
+
+列表支持 `?group=xxx` 过滤（对应注册时的 `group` 字段）：
+
+```bash
+curl "http://127.0.0.1:8000/api/devices?group=一楼"
+```
 
 设备视图在基础字段上附加派生字段：
 

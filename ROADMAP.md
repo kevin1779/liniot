@@ -26,8 +26,8 @@
       `:root` / `[data-theme="dark"]` 双主题 + 仪表盘右上角切换按钮。
 - [ ] *good first issue* **CSV 导出**：`GET /api/devices/{id}/telemetry/export`
       流式返回 CSV；前端设备详情页加导出按钮。
-- [ ] *good first issue* **设备分组/标签**：利用现有 `meta` 字段实现分组过滤与
-      概览页按组聚合视图。
+- [x] *good first issue* **设备分组/标签**：利用现有 `meta` 字段实现分组过滤与
+      概览页按组聚合视图（按组聚合视图为可选项，暂未做）。
 - [x] *help wanted* **Modbus TCP 适配器**：可配置轮询 Modbus 从站并映射为设备指标，
       参照 `MQTTService` 的「转成 DeviceService 调用」模式（见 docs/modbus.md）。
 - [ ] *help wanted* **多用户与 API Token**：设备 Token 鉴权 + 管理端简单会话，

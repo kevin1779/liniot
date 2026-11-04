@@ -205,6 +205,25 @@ def test_telemetry_aggregate_windows(client):
                       params={"metric": "bad metric!"}).status_code == 422
 
 
+def test_device_group_register_filter_preserve(client):
+    # 注册带分组 / 不带分组
+    client.post("/api/devices", json={"id": "s1", "name": "客厅", "type": "sensor", "group": "一楼"})
+    client.post("/api/devices", json={"id": "s2", "name": "机房", "type": "sensor", "group": "二楼"})
+    client.post("/api/devices", json={"id": "s3", "name": "未分组", "type": "sensor"})
+    assert client.get("/api/devices/s1").json()["meta"]["group"] == "一楼"
+
+    # 按分组过滤
+    rows = client.get("/api/devices", params={"group": "一楼"}).json()
+    assert [d["id"] for d in rows] == ["s1"]
+    assert client.get("/api/devices", params={"group": "不存在的组"}).json() == []
+
+    # 幂等重注册未指定分组时保留原分组；显式指定则更新
+    client.post("/api/devices", json={"id": "s1", "name": "客厅", "type": "sensor"})
+    assert client.get("/api/devices/s1").json()["meta"]["group"] == "一楼"
+    client.post("/api/devices", json={"id": "s1", "name": "客厅", "type": "sensor", "group": "三楼"})
+    assert client.get("/api/devices/s1").json()["meta"]["group"] == "三楼"
+
+
 def test_validation_errors(client):
     assert client.post("/api/devices", json={"name": "", "type": "x"}).status_code == 422
     assert client.post("/api/devices", json={"id": "非法ID", "name": "x"}).status_code == 422

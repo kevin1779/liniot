@@ -3,6 +3,7 @@
 
 const S = {
   devices: [], overview: {}, alerts: [],
+  deviceGroupFilter: "",
   health: { mqtt: false, ai: false },
   ws: null, wsOk: false,
   route: "overview", routeId: null,
@@ -252,10 +253,20 @@ function paintCharts() {
 /* ------------------------------------------------------------------ 设备 */
 async function viewDevices(view) {
   S.devices = await api("/api/devices");
-  const rows = S.devices.map((d) => `
+  const groupOf = (d) => (d.meta && d.meta.group) || "";
+  const groups = [...new Set(S.devices.map(groupOf).filter(Boolean))].sort();
+  const visible = S.deviceGroupFilter
+    ? S.devices.filter((d) => groupOf(d) === S.deviceGroupFilter)
+    : S.devices;
+  const groupOptions = [`<option value="">全部分组</option>`]
+    .concat(groups.map((g) =>
+      `<option value="${esc(g)}"${g === S.deviceGroupFilter ? " selected" : ""}>${esc(g)}</option>`))
+    .join("");
+  const rows = visible.map((d) => `
     <tr class="row-link" data-open="${esc(d.id)}">
       <td class="mono">${esc(d.id)}</td>
       <td>${deviceIcon(d.type)} ${esc(d.name)}</td>
+      <td>${groupOf(d) ? `<span class="pill type">${esc(groupOf(d))}</span>` : '<span class="muted">—</span>'}</td>
       <td><span class="pill type">${esc(d.type)}</span></td>
       <td><span class="pill ${d.online ? "online" : "offline"}">${d.online ? "在线" : "离线"}</span></td>
       <td class="mono">${d.last_seen ? ago(d.last_seen) : "—"}</td>
@@ -266,13 +277,17 @@ async function viewDevices(view) {
     </tr>`).join("");
   view.innerHTML = `
     <div class="page-title">设备管理</div>
-    <div class="page-sub">共 ${S.devices.length} 台设备；设备可通过 MQTT 或 HTTP 上报数据</div>
+    <div class="page-sub">${S.deviceGroupFilter
+      ? `分组「${esc(S.deviceGroupFilter)}」共 ${visible.length} / ${S.devices.length} 台设备`
+      : `共 ${S.devices.length} 台设备；设备可通过 MQTT 或 HTTP 上报数据`}</div>
     <div class="card mb14">
       <form id="device-form" class="form-grid">
         <div class="form-item"><label>设备 ID（可选，留空自动生成）</label>
           <input name="id" placeholder="如 sensor-1" pattern="[a-z0-9][a-z0-9_-]*"></div>
         <div class="form-item"><label>名称</label>
           <input name="name" required placeholder="如 客厅温湿度传感器"></div>
+        <div class="form-item"><label>分组（可选）</label>
+          <input name="group" maxlength="32" placeholder="如 一楼 / 机房"></div>
         <div class="form-item"><label>类型</label>
           <select name="type">
             <option value="sensor">sensor（传感器）</option>
@@ -284,9 +299,13 @@ async function viewDevices(view) {
       </form>
     </div>
     <div class="card">
-      ${S.devices.length ? `<table>
-        <thead><tr><th>ID</th><th>名称</th><th>类型</th><th>状态</th><th>最后上报</th><th>操作</th></tr></thead>
+      ${S.devices.length ? `<div class="chart-card-head">
+          <div class="chart-title">设备列表</div>
+          <select id="group-filter">${groupOptions}</select></div>
+        ${visible.length ? `<table>
+        <thead><tr><th>ID</th><th>名称</th><th>分组</th><th>类型</th><th>状态</th><th>最后上报</th><th>操作</th></tr></thead>
         <tbody>${rows}</tbody></table>`
+        : `<div class="empty">该分组暂无设备</div>`}`
       : `<div class="empty">还没有设备。试试 <code class="mono">liniot simulate</code> 一键生成虚拟设备。</div>`}
     </div>`;
 
@@ -295,10 +314,16 @@ async function viewDevices(view) {
     const fd = new FormData(ev.target);
     const body = { name: fd.get("name"), type: fd.get("type") };
     if (fd.get("id")) body.id = fd.get("id");
+    if (fd.get("group")) body.group = fd.get("group");
     try {
       await api("/api/devices", { method: "POST", body });
       toast("设备已注册"); render();
     } catch (e) { toast(`注册失败：${e.message}`); }
+  });
+  const groupFilter = $("#group-filter");
+  if (groupFilter) groupFilter.addEventListener("change", () => {
+    S.deviceGroupFilter = groupFilter.value;
+    render();
   });
   view.querySelectorAll("[data-del]").forEach((btn) =>
     btn.addEventListener("click", async (ev) => {
@@ -333,6 +358,7 @@ async function viewDevice(view) {
   view.innerHTML = `
     <a class="back-link" href="#/devices">← 返回设备列表</a>
     <div class="page-title" style="margin-top:10px">${deviceIcon(device.type, 26)} ${esc(device.name)}
+      ${device.meta && device.meta.group ? `<span class="pill type">${esc(device.meta.group)}</span>` : ""}
       <span class="pill type">${esc(device.type)}</span>
       <span class="pill ${device.online ? "online" : "offline"}">${device.online ? "在线" : "离线"}</span>
     </div>

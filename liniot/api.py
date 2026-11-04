@@ -59,13 +59,24 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config) -> A
     # ------------------------------------------------------------------ 设备
 
     @router.get("/devices")
-    def list_devices() -> list[dict[str, Any]]:
-        return [devices.view(d) for d in store.list_devices()]
+    def list_devices(group: str | None = None) -> list[dict[str, Any]]:
+        device_list = [devices.view(d) for d in store.list_devices()]
+        if group is not None:
+            device_list = [d for d in device_list if d["meta"].get("group") == group]
+        return device_list
 
     @router.post("/devices")
     def create_device(body: DeviceIn, response: Response) -> dict[str, Any]:
         # 幂等：同 id 重复注册时更新名称/类型/元数据，方便设备重启后重新注册
-        device, created = devices.register(body.name, body.type, body.id, body.meta)
+        existing = store.get_device(body.id) if body.id else None
+        meta = dict(body.meta)
+        group = (body.group or "").strip()
+        if group:
+            meta["group"] = group
+        elif existing and existing["meta"].get("group"):
+            # 重新注册未指定分组时保留原分组，避免设备重启上报把分组弄丢
+            meta["group"] = existing["meta"]["group"]
+        device, created = devices.register(body.name, body.type, body.id, meta)
         response.status_code = 201 if created else 200
         return {"device": devices.view(device), "created": created}
 
