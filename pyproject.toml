@@ -31,6 +31,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+modbus = ["pymodbus>=3.6"]
 
 [project.scripts]
 liniot = "liniot.cli:main"

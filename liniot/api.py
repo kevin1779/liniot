@@ -37,7 +37,8 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config) -> A
 
     @router.get("/health")
     def health() -> dict[str, Any]:
-        return {"status": "ok", "mqtt": config.mqtt.enabled, "ai": config.ai.enabled}
+        return {"status": "ok", "mqtt": config.mqtt.enabled, "ai": config.ai.enabled,
+                "modbus": config.modbus.enabled}
 
     @router.get("/overview")
     def overview() -> dict[str, Any]:

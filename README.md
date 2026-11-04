@@ -17,7 +17,7 @@
 
 ## 特性
 
-- **设备接入**：MQTT（对接任意标准 Broker，支持遗嘱下线检测）与 HTTP 双通道，语义一致
+- **设备接入**：MQTT（任意标准 Broker）、HTTP、Modbus TCP（工业设备，可选依赖）三通道，语义一致
 - **时序存储**：SQLite 单文件存储，WAL 并发，按设备环形保留，自动清理
 - **规则引擎**：阈值规则（6 种比较符），上升沿触发一次告警，按「规则 × 设备」独立判定，支持全局规则与 Webhook 通知
 - **统计异常检测**：EWMA 基线 + 3σ 判定，无需配置规则即可发现指标突变
@@ -94,6 +94,10 @@ bash examples/curl-demo.sh   # 纯 API 演示：注册→上报→规则→告�
 | `LINIOT_AI_API_KEY` | 空 | LLM Key，空 = 本地规则模式 |
 | `LINIOT_AI_BASE_URL` | `https://api.openai.com/v1` | 任意 OpenAI 兼容地址 |
 | `LINIOT_AI_MODEL` | `gpt-4o-mini` | 模型名 |
+| `LINIOT_MODBUS_HOST` | 空 | Modbus TCP 从站地址，空 = 禁用（需 `pip install ".[modbus]"`） |
+| `LINIOT_MODBUS_PORT` | `502` | 从站端口 |
+| `LINIOT_MODBUS_POLL` | `10` | 轮询间隔（秒） |
+| `LINIOT_MODBUS_MAP` | 空 | 寄存器映射，见 [Modbus 指南](docs/modbus.md) |
 
 ## 文档
 
@@ -101,6 +105,7 @@ bash examples/curl-demo.sh   # 纯 API 演示：注册→上报→规则→告�
 - [HTTP API](docs/api.md) — REST + WebSocket 全量端点与示例
 - [MQTT 协议](docs/mqtt-protocol.md) — 主题约定、报文格式、遗嘱消息
 - [AI 助手](docs/ai-assistant.md) — 两种模式、Prompt 设计、安全边界
+- [Modbus 接入](docs/modbus.md) — 工业设备（PLC/电表）寄存器映射与轮询
 - [二次开发](CONTRIBUTING.md)
 
 ## 硬件接入
