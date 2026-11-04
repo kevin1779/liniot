@@ -78,6 +78,26 @@ async def call_llm(config: AIConfig, messages: list[dict[str, str]]) -> str:
         return resp.json()["choices"][0]["message"]["content"]
 
 
+class DiagnosisRateLimiter:
+    """按设备的诊断冷却：同一设备在 cooldown 秒内只诊断一次（Issue #10）。
+
+    传感器抖动或规则在阈值附近反复触发时，告警会密集产生；
+    没有限流的话 LLM 调用次数与费用都会失控。冷却状态按设备独立记录。
+    """
+
+    def __init__(self, cooldown: float = 300.0) -> None:
+        self.cooldown = cooldown
+        self._last: dict[str, float] = {}
+
+    def allow(self, device_id: str, now: float | None = None) -> bool:
+        now = time.time() if now is None else now
+        last = self._last.get(device_id)
+        if last is not None and now - last < self.cooldown:
+            return False
+        self._last[device_id] = now
+        return True
+
+
 async def diagnose_alert(store, service, config: AIConfig,
                          alert: dict[str, Any]) -> str | None:
     """对单条告警生成原因分析与处置建议；失败返回 None（静默降级）。"""

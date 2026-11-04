@@ -133,6 +133,54 @@ async def test_diagnose_alert_llm_failure_is_silent(service, monkeypatch):
     assert await ai.diagnose_alert(service.store, service, AIConfig(api_key="k"), alert) is None
 
 
+def test_diagnosis_rate_limiter_per_device():
+    from liniot.ai import DiagnosisRateLimiter
+
+    limiter = DiagnosisRateLimiter(cooldown=300)
+    assert limiter.allow("sensor-1", now=1000) is True
+    assert limiter.allow("sensor-1", now=1299) is False   # 冷却期内
+    assert limiter.allow("sensor-2", now=1299) is True    # 设备之间相互独立
+    assert limiter.allow("sensor-1", now=1300) is True    # 冷却到期恢复
+
+
+@pytest.mark.anyio()
+async def test_diagnosis_worker_skips_within_cooldown(service, monkeypatch):
+    import asyncio
+
+    from liniot import ai, main as liniot_main
+
+    calls = []
+
+    async def fake_llm(config, messages):
+        calls.append(1)
+        return "诊断建议。"
+
+    monkeypatch.setattr(ai, "call_llm", fake_llm)
+    bus = EventBus()
+    id1 = service.store.insert_alert(None, "sensor-1", "告警一")
+    id2 = service.store.insert_alert(None, "sensor-1", "告警二（冷却期内）")
+    id3 = service.store.insert_alert(None, "light-1", "另一设备告警")
+
+    config = Config()
+    config.ai = AIConfig(api_key="k")
+    bus.attach_loop(asyncio.get_running_loop())
+    worker = asyncio.create_task(
+        liniot_main.diagnosis_worker(service.store, service, config, bus))
+    await asyncio.sleep(0.05)
+    for alert_id in (id1, id2, id3):
+        bus.publish({"type": "alert", "data": {"id": alert_id,
+                                               "device_id": "sensor-1" if alert_id == id1 or alert_id == id2 else "light-1",
+                                               "message": "测试告警", "diagnosis": None}})
+    await asyncio.sleep(0.25)
+    worker.cancel()
+
+    assert len(calls) == 2  # sensor-1 第二条被冷却跳过，light-1 正常诊断
+    rows = {a["id"]: a for a in service.store.list_alerts()}
+    assert rows[id1]["diagnosis"] == "诊断建议。"
+    assert rows[id2]["diagnosis"] is None
+    assert rows[id3]["diagnosis"] == "诊断建议。"
+
+
 @pytest.mark.anyio()
 async def test_diagnosis_worker_persists_and_broadcasts(service, monkeypatch):
     import asyncio

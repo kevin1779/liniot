@@ -32,6 +32,7 @@ class AIConfig:
     model: str = "gpt-4o-mini"
     timeout: float = 25.0
     diagnosis: bool = True   # 告警后自动生成 LLM 诊断（需启用大模型）
+    diagnosis_cooldown: float = 300.0  # 同设备诊断冷却秒数（Issue #10）
 
     @property
     def enabled(self) -> bool:
@@ -71,6 +72,7 @@ def load_config() -> Config:
             base_url=env.get("LINIOT_AI_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
             model=env.get("LINIOT_AI_MODEL", "gpt-4o-mini"),
             diagnosis=env.get("LINIOT_AI_DIAGNOSIS", "on").lower() not in ("off", "0", "false"),
+            diagnosis_cooldown=float(env.get("LINIOT_AI_DIAGNOSIS_COOLDOWN", "300")),
         ),
         web_dir=Path(env.get("LINIOT_WEB_DIR", web_default)),
     )

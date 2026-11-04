@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__
 from . import ai
+from .ai import DiagnosisRateLimiter
 from .api import build_router, register_websocket
 from .bus import EventBus
 from .config import Config, load_config
@@ -30,14 +31,21 @@ DESCRIPTION = """LinIoT — 轻量级 AIoT 开源平台。
 
 
 async def diagnosis_worker(store, devices, config: Config, bus: EventBus) -> None:
-    """监听告警事件，异步生成 LLM 诊断并回写；配置 Key 后自动启用。"""
+    """监听告警事件，异步生成 LLM 诊断并回写；配置 Key 后自动启用。
+
+    同一设备在 diagnosis_cooldown 秒内只诊断一次，避免传感器抖动时
+    重复调用 LLM（Issue #10）。
+    """
     queue = bus.subscribe()
+    limiter = DiagnosisRateLimiter(config.ai.diagnosis_cooldown)
     while True:
         message = await queue.get()
         if message.get("type") != "alert":
             continue
         alert = message["data"]
         if alert.get("diagnosis"):
+            continue
+        if not limiter.allow(alert.get("device_id") or ""):
             continue
         text = await ai.diagnose_alert(store, devices, config.ai, alert)
         if text:

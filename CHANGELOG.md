@@ -8,6 +8,8 @@
 - 时序聚合查询：新增 `GET /api/devices/{id}/telemetry/aggregate`，支持
   1m/5m/15m/1h 窗口返回 count/avg/min/max（10 万行 < 100ms）；设备详情页
   新增聚合视图切换按钮；修复 `ts=0` 被当作缺省时间戳的边界问题；测试增至 62 个
+- 告警诊断限流：同一设备默认 300 秒内只诊断一次（`LINIOT_AI_DIAGNOSIS_COOLDOWN`
+  可调），避免传感器抖动时 LLM 调用失控（社区建议 #10）；测试增至 64 个
 
 ## 0.2.0 (2026-10-31)
 

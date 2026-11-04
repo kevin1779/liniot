@@ -92,6 +92,9 @@ System Prompt 全文见 `liniot/ai.py` 的 `SYSTEM_PROMPT`；模型温度 0.2 �
 并通过 WebSocket `alert_diagnosis` 事件推送到仪表盘。
 
 - 异步执行，不阻塞数据面；失败静默降级（告警本身不受影响）
+- **按设备冷却**：同一设备在冷却窗口内只诊断一次（默认 300 秒），
+  避免传感器抖动时重复调用 LLM（Issue #10）；
+  `LINIOT_AI_DIAGNOSIS_COOLDOWN=600` 可调整秒数
 - `LINIOT_AI_DIAGNOSIS=off` 可整体关闭
 - 未配置 Key 时 `diagnosis` 保持 `null`，界面不展示诊断栏
 
