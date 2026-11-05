@@ -50,6 +50,7 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config) -> A
         result: dict[str, Any] = {}
         for device in store.list_devices():
             entry = {"name": device["name"], "type": device["type"],
+                     "group": device["meta"].get("group", ""),
                      "online": devices.view(device)["online"], "metrics": {}}
             for metric in store.metrics_of(device["id"]):
                 entry["metrics"][metric] = store.query_telemetry(device["id"], metric, limit)

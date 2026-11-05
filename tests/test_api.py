@@ -224,6 +224,17 @@ def test_device_group_register_filter_preserve(client):
     assert client.get("/api/devices/s1").json()["meta"]["group"] == "三楼"
 
 
+def test_overview_series_includes_group(client):
+    client.post("/api/devices", json={"id": "s1", "name": "客厅", "type": "sensor", "group": "一楼"})
+    client.post("/api/devices", json={"id": "s2", "name": "机房", "type": "sensor"})
+    client.post("/api/devices/s1/telemetry", json={"metric": "temperature", "value": 25})
+
+    series = client.get("/api/overview/series").json()
+    assert series["s1"]["group"] == "一楼"
+    assert series["s2"]["group"] == ""
+    assert series["s1"]["metrics"]["temperature"][-1]["value"] == 25
+
+
 def test_validation_errors(client):
     assert client.post("/api/devices", json={"name": "", "type": "x"}).status_code == 422
     assert client.post("/api/devices", json={"id": "非法ID", "name": "x"}).status_code == 422

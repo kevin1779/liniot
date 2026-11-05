@@ -3,7 +3,7 @@
 
 const S = {
   devices: [], overview: {}, alerts: [],
-  deviceGroupFilter: "",
+  deviceGroupFilter: "", overviewGroupFilter: "",
   health: { mqtt: false, ai: false },
   ws: null, wsOk: false,
   route: "overview", routeId: null,
@@ -207,13 +207,28 @@ async function viewOverview(view) {
     api("/api/overview"), api("/api/overview/series?limit=120"), api("/api/alerts?limit=8"),
   ]);
   S.overview = overview; S.alerts = alerts;
+  const entries = Object.entries(series);
+  const groups = [...new Set(entries.map(([, v]) => v.group || "").filter(Boolean))].sort();
+  const visibleEntries = S.overviewGroupFilter
+    ? entries.filter(([, v]) => v.group === S.overviewGroupFilter)
+    : entries;
+  const onlineIn = (list) => list.filter(([, v]) => v.online).length;
+  const groupOptions = [`<option value="">全部分组</option>`]
+    .concat(groups.map((g) =>
+      `<option value="${esc(g)}"${g === S.overviewGroupFilter ? " selected" : ""}>${esc(g)}</option>`))
+    .join("");
+  const groupBar = groups.length ? `
+    <div class="card mb14"><div class="chart-card-head">
+      <div class="chart-title">按分组查看</div>
+      <select id="overview-group">${groupOptions}</select></div></div>` : "";
   const cards = [
-    ["设备", `${overview.online}<span class="muted" style="font-size:14px"> / ${overview.devices} 在线</span>`, "注册设备总数"],
+    ["设备", `${onlineIn(visibleEntries)}<span class="muted" style="font-size:14px"> / ${visibleEntries.length} 在线</span>`,
+      S.overviewGroupFilter ? `分组「${esc(S.overviewGroupFilter)}」` : "注册设备总数"],
     ["数据点", overview.telemetry_points, "累计遥测记录"],
     ["24h 告警", overview.alerts_24h, "近 24 小时触发"],
     ["规则", overview.rules, "已配置阈值规则"],
   ];
-  const chartCards = Object.entries(series).flatMap(([deviceId, dev]) =>
+  const chartCards = visibleEntries.flatMap(([deviceId, dev]) =>
     Object.entries(dev.metrics).map(([metric, points]) => `
       <div class="card chart-card" data-chart="${esc(deviceId)}:${esc(metric)}">
         <div class="chart-card-head">
@@ -232,12 +247,19 @@ async function viewOverview(view) {
       <div class="card"><div class="stat-label">${label}</div>
       <div class="stat-value">${value}</div><div class="stat-extra">${extra}</div></div>`).join("")}
     </div>
-    ${chartCards ? `<div class="chart-grid">${chartCards}</div>` : ""}
+    ${groupBar}
+    ${chartCards ? `<div class="chart-grid">${chartCards}</div>`
+      : (S.overviewGroupFilter ? `<div class="card mb14"><div class="empty">该分组暂无设备数据</div></div>` : "")}
     <div class="card">
       <div class="chart-card-head"><div class="chart-title">最近告警</div>
       <a class="back-link" href="#/rules">全部规则 →</a></div>
       ${renderAlerts(alerts)}
     </div>`;
+  const overviewFilter = $("#overview-group");
+  if (overviewFilter) overviewFilter.addEventListener("change", () => {
+    S.overviewGroupFilter = overviewFilter.value;
+    render();
+  });
   paintCharts();
 }
 
