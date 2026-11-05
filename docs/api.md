@@ -207,6 +207,20 @@ PATCH 支持 `{"enabled": false}` / `{"threshold": 26}` / `{"cooldown": 120}`。
 
 规则触发时同步 `POST` 同样的 JSON 到 `LINIOT_WEBHOOK_URL`（若配置）。
 
+### 告警通知渠道
+
+`LINIOT_ALERT_WEBHOOKS` 支持把告警推送到群机器人（分号分隔多个），
+按 URL 自动识别渠道并转换报文：
+
+```bash
+export LINIOT_ALERT_WEBHOOKS="https://oapi.dingtalk.com/robot/send?access_token=xxx;https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=yyy"
+```
+
+- 钉钉 / 企业微信：`{"msgtype":"text","text":{"content":"LinIoT 告警: ..."}}`
+- 飞书：`{"msg_type":"text","content":{"text":"LinIoT 告警: ..."}}`
+- 其他地址：原样透传告警 JSON（同 `LINIOT_WEBHOOK_URL`）
+- 阈值规则与统计异常检测的告警都会推送
+
 ## AI 助手
 
 ### `POST /api/ai/chat`

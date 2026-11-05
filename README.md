@@ -88,6 +88,7 @@ bash examples/curl-demo.sh   # 纯 API 演示：注册→上报→规则→告�
 | `LINIOT_RETENTION` | `20000` | 每设备遥测保留条数 |
 | `LINIOT_ONLINE_TIMEOUT` | `90` | 超过该秒数无上报视为离线 |
 | `LINIOT_WEBHOOK_URL` | 空 | 告警回调地址（POST JSON） |
+| `LINIOT_ALERT_WEBHOOKS` | 空 | 群机器人推送，分号分隔多个；按 URL 自动识别钉钉/飞书/企业微信，其他地址原样透传 JSON |
 | `LINIOT_MQTT_HOST` | 空 | Broker 地址，空 = 禁用 MQTT |
 | `LINIOT_MQTT_PORT` | `1883` | Broker 端口 |
 | `LINIOT_MQTT_USERNAME` / `LINIOT_MQTT_PASSWORD` | 空 | Broker 凭据 |

@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 from .anomaly import AnomalyDetector
 from .bus import EventBus
-from .rules import RuleEngine, notify_webhook
+from .rules import RuleEngine, notify_channels, notify_webhook
 
 logger = logging.getLogger("liniot.service")
 
@@ -26,13 +26,14 @@ class UnknownDevice(KeyError):
 class DeviceService:
     def __init__(self, store, bus: EventBus, rules: RuleEngine,
                  mqtt=None, online_timeout: float = 90.0,
-                 webhook_url: str = "") -> None:
+                 webhook_url: str = "", alert_webhooks: tuple = ()) -> None:
         self.store = store
         self.bus = bus
         self.rules = rules
         self.mqtt = mqtt  # 可选的 MQTT 服务，启用时命令同时经 MQTT 下发
         self.online_timeout = online_timeout
         self.webhook_url = webhook_url
+        self.alert_webhooks = tuple(alert_webhooks)
         self.anomaly = AnomalyDetector()
         # SceneEngine 由 create_app 在装配阶段注入，避免构造循环依赖
         self.scene_engine = None
@@ -89,6 +90,7 @@ class DeviceService:
                      "diagnosis": None}
             self.bus.publish({"type": "alert", "data": alert})
             notify_webhook(self.webhook_url, alert)
+            notify_channels(self.alert_webhooks, alert)
             logger.warning("异常检测触发: %s", message)
 
     def set_status(self, device_id: str, status: str,

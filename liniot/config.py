@@ -64,7 +64,8 @@ class Config:
     db_path: Path = Path("data/liniot.db")
     retention_points: int = 20000        # 每设备保留的遥测点数上限
     online_timeout: float = 90.0         # 超过该秒数未见心跳视为离线
-    webhook_url: str = ""                # 规则触发时的告警回调
+    webhook_url: str = ""                # 规则触发时的通用 JSON 回调
+    alert_webhooks: tuple = ()           # 群机器人推送（钉钉/飞书/企微自动识别）
     mqtt: MQTTConfig = field(default_factory=MQTTConfig)
     modbus: ModbusConfig = field(default_factory=ModbusConfig)
     ai: AIConfig = field(default_factory=AIConfig)
@@ -82,6 +83,9 @@ def load_config() -> Config:
         retention_points=int(env.get("LINIOT_RETENTION", "20000")),
         online_timeout=float(env.get("LINIOT_ONLINE_TIMEOUT", "90")),
         webhook_url=env.get("LINIOT_WEBHOOK_URL", ""),
+        alert_webhooks=tuple(u for u in
+                             (s.strip() for s in env.get("LINIOT_ALERT_WEBHOOKS", "").replace(";", ",").split(","))
+                             if u),
         mqtt=MQTTConfig(
             host=env.get("LINIOT_MQTT_HOST", ""),
             port=int(env.get("LINIOT_MQTT_PORT", "1883")),
