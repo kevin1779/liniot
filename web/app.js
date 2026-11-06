@@ -1,5 +1,31 @@
 /* LinIoT 控制台逻辑：hash 路由 + WebSocket 实时刷新 + Canvas 图表（零依赖） */
 "use strict";
+function cssVar(n,d){ try { var v=getComputedStyle(document.documentElement).getPropertyValue(n); v=v?v.trim():v; return v||d; } catch(e){ return d; } }
+(function(){
+  function applyTheme(t){
+    document.documentElement.setAttribute('data-theme',t);
+    try{ localStorage.setItem('theme',t); }catch(e){}
+    var b=document.getElementById('themeToggle');
+    if(b) b.textContent=(t==='dark'?'\u2600\ufe0f \u4eae\u8272':'\u{1F319} \u6697\u8272');
+  }
+  var t='light';
+  try{ t=localStorage.getItem('theme')||'light'; }catch(e){}
+  applyTheme(t);
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',function(){ applyTheme(t); bindBtn(); });
+  } else { bindBtn(); }
+  function bindBtn(){
+    var btn=document.getElementById('themeToggle');
+    if(!btn) return;
+    btn.addEventListener('click',function(){
+      t=(t==='dark'?'light':'dark');
+      applyTheme(t);
+      var redrawn=false;
+      try{ if(typeof drawChart==='function'){ drawChart(); redrawn=true; } }catch(e){}
+      if(!redrawn){ try{ location.reload(); }catch(e){} }
+    });
+  }
+})();
 
 const S = {
   devices: [], overview: {}, alerts: [],
@@ -51,7 +77,7 @@ const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = se
 
 const METRIC_STYLE = {
   temperature: { color: "#f59e0b", unit: "°C", label: "温度" },
-  humidity: { color: "#2f7bf6", unit: "%", label: "湿度" },
+  humidity: { color: cssVar('--accent', '#2f7bf6'), unit: "%", label: "湿度" },
   co2: { color: "#8b5cf6", unit: "ppm", label: "CO₂" },
   pm25: { color: "#ec4899", unit: "μg/m³", label: "PM2.5" },
 };
@@ -60,8 +86,8 @@ const metricStyle = (m) => METRIC_STYLE[m] || { color: "#14b8a6", unit: "", labe
 /* 设备类型扁平图标（浅色卡片风格） */
 const DEVICE_ICON = {
   sensor: { fill: "#34b3a0", glyph: '<path d="M7 12.5V9.8a3.4 3.4 0 1 1 4 0v2.7l-1 1.4H8l-1-1.4z" fill="#fff"/>' },
-  light: { fill: "#f5a623", glyph: '<path d="M10 4.5A3.5 3.5 0 0 0 6.5 8c0 1.2.6 2.2 1.5 2.8v1.7h4V10.8c.9-.6 1.5-1.6 1.5-2.8A3.5 3.5 0 0 0 10 4.5z" fill="#fff"/><rect x="8" y="13.5" width="4" height="1.4" rx=".7" fill="#fff" opacity=".85"/>' },
-  switch: { fill: "#2f7bf6", glyph: '<rect x="4.5" y="8" width="11" height="5" rx="2.5" fill="#fff"/><circle cx="7" cy="10.5" r="1.5" fill="#2f7bf6"/>' },
+  light: { fill: cssVar('--orange', '#f5a623'), glyph: '<path d="M10 4.5A3.5 3.5 0 0 0 6.5 8c0 1.2.6 2.2 1.5 2.8v1.7h4V10.8c.9-.6 1.5-1.6 1.5-2.8A3.5 3.5 0 0 0 10 4.5z" fill="#fff"/><rect x="8" y="13.5" width="4" height="1.4" rx=".7" fill="#fff" opacity=".85"/>' },
+  switch: { fill: cssVar('--accent', '#2f7bf6'), glyph: '<rect x="4.5" y="8" width="11" height="5" rx="2.5" fill="#fff"/><circle cx="7" cy="10.5" r="1.5" fill="#2f7bf6"/>' },
   generic: { fill: "#7b8aa5", glyph: '<rect x="6" y="6" width="8" height="8" rx="1.5" fill="#fff"/><path d="M8 8.5h4M8 10.5h4" stroke="#7b8aa5" stroke-width="1.1" stroke-linecap="round"/>' },
 };
 function deviceIcon(type, size = 24) {
@@ -79,7 +105,7 @@ function drawChart(canvas, points, color) {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, w, h);
   if (!points || points.length < 2) {
-    ctx.fillStyle = "#8a99b5"; ctx.font = "12px sans-serif";
+    ctx.fillStyle = cssVar('--muted', '#8a99b5'); ctx.font = "12px sans-serif";
     ctx.fillText("等待数据…", w / 2 - 30, h / 2);
     return;
   }
@@ -93,7 +119,7 @@ function drawChart(canvas, points, color) {
   const x = (i) => padL + (iw * i) / (points.length - 1);
   const y = (v) => padT + ih - ((v - min) * ih) / (max - min);
 
-  ctx.strokeStyle = "#e8eef7"; ctx.fillStyle = "#8a99b5"; ctx.font = "10px ui-monospace, Menlo";
+  ctx.strokeStyle = "#e8eef7"; ctx.fillStyle = cssVar('--muted', '#8a99b5'); ctx.font = "10px ui-monospace, Menlo";
   ctx.textAlign = "right";
   for (let g = 0; g <= 3; g++) {
     const gy = padT + (ih * g) / 3;
