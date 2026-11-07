@@ -2,6 +2,20 @@
 
 Base URL：`http://<host>:8000/api`。交互式文档（Swagger UI）在 `/docs`。
 
+## 访问令牌（可选）
+
+设置环境变量 `LINIOT_AUTH_TOKEN` 后，除 `GET /api/health` 外的所有 `/api/*`
+端点与 WebSocket 都需要携带令牌（Swagger UI 里点 Authorize 即可调试）：
+
+```
+X-Auth-Token: <令牌>
+# 或
+Authorization: Bearer <令牌>
+```
+
+- WebSocket：`/ws?token=<令牌>`（浏览器 WS 无法自定义请求头）
+- 未配置令牌时不做任何限制（开箱即用）；401 表示令牌缺失或错误
+
 ## 健康与概览
 
 ### `GET /api/health`

@@ -252,6 +252,37 @@ def test_alert_acknowledge_flow(client):
     assert client.post("/api/alerts/999/ack").status_code == 404
 
 
+def test_auth_token_mode(tmp_path):
+    import pytest
+    from fastapi.testclient import TestClient
+    from liniot.config import Config
+    from liniot.main import create_app
+
+    config = Config(db_path=tmp_path / "auth.db", web_dir=tmp_path / "no-web",
+                    auth_token="secret-token")
+    app = create_app(config)
+    with TestClient(app) as c:
+        # 健康检查保持开放，且暴露 auth 状态
+        assert c.get("/api/health").json()["auth"] is True
+        # 无令牌 / 错误令牌 → 401
+        assert c.get("/api/devices").status_code == 401
+        assert c.get("/api/devices", headers={"X-Auth-Token": "wrong"}).status_code == 401
+        # X-Auth-Token / Bearer 两种携带方式均可
+        assert c.get("/api/devices", headers={"X-Auth-Token": "secret-token"}).status_code == 200
+        assert c.get("/api/devices",
+                     headers={"Authorization": "Bearer secret-token"}).status_code == 200
+        # 写操作同样受保护
+        assert c.post("/api/devices", json={"name": "x"}).status_code == 401
+
+        # WebSocket：无令牌被拒，带令牌可连
+        from starlette.websockets import WebSocketDisconnect
+        with pytest.raises(WebSocketDisconnect):
+            with c.websocket_connect("/ws"):
+                pass
+        with c.websocket_connect("/ws?token=secret-token") as ws:
+            assert ws.receive_json()["type"] == "hello"
+
+
 def test_validation_errors(client):
     assert client.post("/api/devices", json={"name": "", "type": "x"}).status_code == 422
     assert client.post("/api/devices", json={"id": "非法ID", "name": "x"}).status_code == 422

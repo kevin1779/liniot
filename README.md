@@ -39,6 +39,8 @@ liniot run                     # http://127.0.0.1:8000
 liniot simulate                # 2 台温湿度传感器 + 2 台智能灯
 ```
 
+> **安全提示**：平台支持访问令牌鉴权——设置 `LINIOT_AUTH_TOKEN` 后，所有 API 与 WebSocket 需携带令牌（仪表盘会弹出验证框）。**生产 / 公网环境务必设置**，或改用防火墙 / 反向代理限制来源；仅本机体验可不设置。MQTT 通道建议直接使用 Broker 自带的用户名密码。
+
 打开 http://127.0.0.1:8000 —— 概览页实时曲线、设备控制、规则告警、AI 对话全部可用。
 
 启用 AI 大模型（可选，兼容任意 OpenAI 风格服务）：
@@ -87,6 +89,7 @@ bash examples/curl-demo.sh   # 纯 API 演示：注册→上报→规则→告�
 | `LINIOT_DB_PATH` | `data/liniot.db` | SQLite 文件路径 |
 | `LINIOT_RETENTION` | `20000` | 每设备遥测保留条数 |
 | `LINIOT_ONLINE_TIMEOUT` | `90` | 超过该秒数无上报视为离线 |
+| `LINIOT_AUTH_TOKEN` | 空 | 访问令牌；设置后所有 API 与 WebSocket 需携带（仪表盘弹验证框） |
 | `LINIOT_WEBHOOK_URL` | 空 | 告警回调地址（POST JSON） |
 | `LINIOT_ALERT_WEBHOOKS` | 空 | 群机器人推送，分号分隔多个；按 URL 自动识别钉钉/飞书/企业微信，其他地址原样透传 JSON |
 | `LINIOT_MQTT_HOST` | 空 | Broker 地址，空 = 禁用 MQTT |
@@ -192,7 +195,7 @@ Optional MQTT:
 export LINIOT_MQTT_HOST=broker.emqx.io
 ```
 
-> **Security note**: the current version ships **without authentication** on the HTTP API, MQTT channel and dashboard. Anyone who can reach the port can control devices and read data — keep it inside a trusted LAN or restrict access via firewall / reverse proxy. Token-based auth is on the [ROADMAP](ROADMAP.md).
+> **Security note**: set `LINIOT_AUTH_TOKEN` to require an access token on every API call and the WebSocket (the dashboard shows a login box). Without it the platform is open by design — keep it inside a trusted LAN or restrict access via firewall / reverse proxy for production.
 
 See the Chinese section above for full configuration, API docs, MQTT protocol, and hardware guides — code comments and API responses are largely language-neutral, and doc files are being translated progressively.
 

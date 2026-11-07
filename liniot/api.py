@@ -10,7 +10,8 @@ import time
 from collections.abc import Iterator
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, \
+    WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
 from . import ai
@@ -24,8 +25,20 @@ logger = logging.getLogger("liniot.api")
 WINDOW_MAP = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
 
 
-def build_router(store, bus, rules, devices: DeviceService, config: Config) -> APIRouter:
-    router = APIRouter(prefix="/api")
+def build_router(store, bus, rules, devices: DeviceService, config: Config):
+    def require_token(request: Request) -> None:
+        """访问令牌校验：未配置令牌时不做任何限制（开箱即用）。
+
+        支持 X-Auth-Token 头或 Authorization: Bearer <token>。
+        """
+        if not config.auth_token:
+            return
+        supplied = request.headers.get("x-auth-token") or ""
+        if not supplied:
+            auth = request.headers.get("authorization") or ""
+            supplied = auth[7:] if auth.lower().startswith("bearer ") else ""
+        if supplied != config.auth_token:
+            raise HTTPException(401, "需要有效的访问令牌")
 
     def device_or_404(device_id: str) -> dict[str, Any]:
         device = store.get_device(device_id)
@@ -35,10 +48,14 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config) -> A
 
     # ------------------------------------------------------------------ 基础
 
-    @router.get("/health")
     def health() -> dict[str, Any]:
         return {"status": "ok", "mqtt": config.mqtt.enabled, "ai": config.ai.enabled,
-                "modbus": config.modbus.enabled}
+                "modbus": config.modbus.enabled, "auth": bool(config.auth_token)}
+
+    # 健康检查保持开放（探活用）；其余 /api/* 在配置令牌后需要鉴权
+    open_router = APIRouter(prefix="/api")
+    open_router.add_api_route("/health", health, methods=["GET"])
+    router = APIRouter(prefix="/api", dependencies=[Depends(require_token)])
 
     @router.get("/overview")
     def overview() -> dict[str, Any]:
@@ -248,12 +265,17 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config) -> A
     async def ai_chat(body: ChatIn) -> dict[str, Any]:
         return await ai.chat(store, devices, config.ai, body.message, body.history)
 
-    return router
+    return [open_router, router]
 
 
-def register_websocket(app, store, bus, devices: DeviceService) -> None:
+def register_websocket(app, store, bus, devices: DeviceService,
+                       auth_token: str = "") -> None:
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
+        # 配置令牌后，WebSocket 用 ?token= 携带（浏览器 WS 无法自定义请求头）
+        if auth_token and websocket.query_params.get("token") != auth_token:
+            await websocket.close(code=4401)
+            return
         await websocket.accept()
         queue = bus.subscribe()
         try:

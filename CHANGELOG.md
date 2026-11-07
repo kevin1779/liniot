@@ -16,6 +16,9 @@
 - 概览页按分组过滤：分组下拉联动设备在线统计与曲线卡片（补齐 #3 可选项）
 - 告警确认闭环：告警中心支持标记已处理（`POST /api/alerts/{id}/ack`），
   列表支持 open/acked 过滤，WebSocket `alert_ack` 多端同步；测试增至 79 个
+- 访问令牌鉴权（社区建议 #9 的安全闭环）：设置 `LINIOT_AUTH_TOKEN` 后所有
+  API 与 WebSocket 需携带令牌（仪表盘弹出验证框），health 保持开放；
+  默认不启用、行为不变；README 安全提示同步更新；测试增至 80 个
 - 告警多渠道推送：`LINIOT_ALERT_WEBHOOKS` 支持钉钉/飞书/企业微信群机器人
   （按 URL 自动识别报文），规则与异常告警均推送；测试增至 77 个
 - Modbus TCP 接入适配器：`LINIOT_MODBUS_MAP` 配置寄存器映射（四类寄存器 +

@@ -85,8 +85,9 @@ def create_app(config: Config | None = None) -> FastAPI:
                   lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
-    app.include_router(build_router(store, bus, rules, devices, config))
-    register_websocket(app, store, bus, devices)
+    for router in build_router(store, bus, rules, devices, config):
+        app.include_router(router)
+    register_websocket(app, store, bus, devices, auth_token=config.auth_token)
 
     if config.web_dir.is_dir():
         app.mount("/", StaticFiles(directory=str(config.web_dir), html=True), name="web")

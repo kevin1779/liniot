@@ -23,12 +23,23 @@ function toast(text) {
   el._timer = setTimeout(() => el.classList.remove("show"), 2200);
 }
 
+const authHeaders = () => {
+  const t = localStorage.getItem("authToken");
+  return t ? { "X-Auth-Token": t } : {};
+};
+
 async function api(path, options = {}) {
   const resp = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: { "Content-Type": "application/json", ...authHeaders(),
+               ...(options.headers || {}) },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
+  if (resp.status === 401) {
+    localStorage.removeItem("authToken");
+    renderLogin();
+    throw new Error("需要访问令牌");
+  }
   if (!resp.ok) {
     let detail = `${resp.status}`;
     try { detail = (await resp.json()).detail || detail; } catch (e) { /* ignore */ }
@@ -122,7 +133,9 @@ function drawChart(canvas, points, color) {
 /* ------------------------------------------------------------------ WebSocket */
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  const token = localStorage.getItem("authToken");
+  const ws = new WebSocket(`${proto}://${location.host}/ws`
+    + (token ? `?token=${encodeURIComponent(token)}` : ""));
   S.ws = ws;
   ws.onopen = () => { setWS(true); };
   ws.onclose = () => { setWS(false); setTimeout(connectWS, 2000); };
@@ -174,6 +187,34 @@ function handleEvent(msg) {
     toast(`场景「${data.name}」已执行：${data.action_device_id}.${data.action_property}`);
     if (S.route === "scenes") refreshCurrent();
   }
+}
+
+/* ------------------------------------------------------------------ 访问令牌登录 */
+function renderLogin() {
+  $("#view").innerHTML = `
+    <div class="card" style="max-width:420px;margin:16vh auto 0;text-align:center;padding:26px">
+      <div class="chart-title" style="margin-bottom:8px">访问令牌验证</div>
+      <div class="muted mb14">当前平台已启用访问令牌，输入后继续</div>
+      <form id="login-form" class="form-grid" style="justify-content:center">
+        <div class="form-item" style="flex:1;min-width:200px">
+          <input id="login-token" type="password" placeholder="访问令牌" autocomplete="off" required>
+        </div>
+        <button class="primary" type="submit">验证进入</button>
+      </form>
+      <div class="muted" id="login-error" style="margin-top:10px;min-height:18px"></div>
+    </div>`;
+  $("#login-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    localStorage.setItem("authToken", $("#login-token").value.trim());
+    try {
+      await api("/api/overview");   // 验证令牌
+      location.reload();            // 重载后按已保存令牌正常启动
+    } catch (e) {
+      localStorage.removeItem("authToken");
+      $("#login-error").textContent = "令牌无效，请重试";
+    }
+  });
+  $("#login-token").focus();
 }
 
 /* ------------------------------------------------------------------ 路由 */
@@ -737,6 +778,10 @@ async function boot() {
     aiBadge.classList.toggle("on", S.health.ai);
     aiBadge.title = S.health.ai ? "AI 大模型已连接" : "AI 本地规则模式";
   } catch (e) { /* 服务未就绪时静默 */ }
+  if (S.health.auth && !localStorage.getItem("authToken")) {
+    renderLogin();
+    return;
+  }
   parseHash();
   connectWS();
   // WebSocket 不可用时退化为 3 秒轮询
