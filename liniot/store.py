@@ -50,7 +50,9 @@ CREATE TABLE IF NOT EXISTS alerts (
     message   TEXT NOT NULL,
     level     TEXT NOT NULL DEFAULT 'warning',
     ts        REAL NOT NULL,
-    diagnosis TEXT
+    diagnosis TEXT,
+    acknowledged    INTEGER NOT NULL DEFAULT 0,
+    acknowledged_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(ts);
 CREATE TABLE IF NOT EXISTS scenes (
@@ -106,6 +108,11 @@ class Store:
             columns = {row["name"] for row in self.conn.execute("PRAGMA table_info(alerts)")}
             if "diagnosis" not in columns:
                 self.conn.execute("ALTER TABLE alerts ADD COLUMN diagnosis TEXT")
+            if "acknowledged" not in columns:
+                self.conn.execute(
+                    "ALTER TABLE alerts ADD COLUMN acknowledged INTEGER NOT NULL DEFAULT 0")
+            if "acknowledged_at" not in columns:
+                self.conn.execute("ALTER TABLE alerts ADD COLUMN acknowledged_at REAL")
             self.conn.commit()
 
     # ------------------------------------------------------------------ 设备
@@ -365,12 +372,31 @@ class Store:
             self.conn.commit()
         return int(cur.lastrowid)
 
-    def list_alerts(self, limit: int = 50) -> list[dict[str, Any]]:
+    def list_alerts(self, limit: int = 50, ack: Optional[str] = None) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM alerts"
+        params: list[Any] = []
+        if ack == "open":
+            sql += " WHERE acknowledged=0"
+        elif ack in ("acked", "done"):
+            sql += " WHERE acknowledged=1"
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
         with self.lock:
-            rows = self.conn.execute(
-                "SELECT * FROM alerts ORDER BY id DESC LIMIT ?", (limit,)
-            ).fetchall()
+            rows = self.conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
+
+    def acknowledge_alert(self, alert_id: int) -> Optional[dict[str, Any]]:
+        """标记告警已处理，返回更新后的告警；不存在返回 None。"""
+        with self.lock:
+            row = self.conn.execute("SELECT id FROM alerts WHERE id=?", (alert_id,)).fetchone()
+            if row is None:
+                return None
+            self.conn.execute(
+                "UPDATE alerts SET acknowledged=1, acknowledged_at=? WHERE id=?",
+                (time.time(), alert_id))
+            self.conn.commit()
+            updated = self.conn.execute("SELECT * FROM alerts WHERE id=?", (alert_id,)).fetchone()
+        return dict(updated)
 
     def set_alert_diagnosis(self, alert_id: int, diagnosis: str) -> None:
         with self.lock:

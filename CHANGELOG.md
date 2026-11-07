@@ -14,6 +14,8 @@
   `GET /api/devices?group=` 过滤，仪表盘设备列表分组下拉与分组列、
   详情页分组徽标（good first issue #3）；测试增至 71 个
 - 概览页按分组过滤：分组下拉联动设备在线统计与曲线卡片（补齐 #3 可选项）
+- 告警确认闭环：告警中心支持标记已处理（`POST /api/alerts/{id}/ack`），
+  列表支持 open/acked 过滤，WebSocket `alert_ack` 多端同步；测试增至 79 个
 - 告警多渠道推送：`LINIOT_ALERT_WEBHOOKS` 支持钉钉/飞书/企业微信群机器人
   （按 URL 自动识别报文），规则与异常告警均推送；测试增至 77 个
 - Modbus TCP 接入适配器：`LINIOT_MODBUS_MAP` 配置寄存器映射（四类寄存器 +

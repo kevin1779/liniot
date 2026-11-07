@@ -201,8 +201,17 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config) -> A
         return {"deleted": rule_id}
 
     @router.get("/alerts")
-    def list_alerts(limit: int = 50) -> list[dict[str, Any]]:
-        return store.list_alerts(max(1, min(limit, 500)))
+    def list_alerts(limit: int = 50, ack: str | None = None) -> list[dict[str, Any]]:
+        return store.list_alerts(max(1, min(limit, 500)), ack=ack)
+
+    @router.post("/alerts/{alert_id}/ack")
+    def ack_alert(alert_id: int) -> dict[str, Any]:
+        alert = store.acknowledge_alert(alert_id)
+        if alert is None:
+            raise HTTPException(404, f"告警不存在: {alert_id}")
+        bus.publish({"type": "alert_ack",
+                     "data": {"id": alert["id"], "acknowledged_at": alert["acknowledged_at"]}})
+        return alert
 
     # ------------------------------------------------------------------ 场景
 

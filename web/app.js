@@ -166,6 +166,10 @@ function handleEvent(msg) {
     const alert = S.alerts.find((a) => a.id === data.id);
     if (alert) alert.diagnosis = data.diagnosis;
     if (["overview", "rules"].includes(S.route)) refreshCurrent();
+  } else if (type === "alert_ack") {
+    const acked = S.alerts.find((a) => a.id === data.id);
+    if (acked) { acked.acknowledged = 1; acked.acknowledged_at = data.acknowledged_at; }
+    if (["overview", "rules"].includes(S.route)) refreshCurrent();
   } else if (type === "scene_fired") {
     toast(`场景「${data.name}」已执行：${data.action_device_id}.${data.action_property}`);
     if (S.route === "scenes") refreshCurrent();
@@ -195,10 +199,26 @@ async function render(keepScroll) {
 function renderAlerts(alerts) {
   if (!alerts.length) return `<div class="empty">暂无告警</div>`;
   return alerts.map((a) => `
-    <div class="alert-item"><span class="alert-time">${fmtTime(a.ts)}</span>
+    <div class="alert-item${a.acknowledged ? " acked" : ""}">
+      <span class="alert-time">${fmtTime(a.ts)}</span>
       <div><span class="alert-msg">${esc(a.message)}</span>${a.diagnosis
         ? `<div class="muted" style="margin-top:2px">AI 诊断：${esc(a.diagnosis)}</div>` : ""}
-      </div></div>`).join("");
+      </div>
+      ${a.acknowledged
+        ? `<span class="ack-cell muted">已确认 ${fmtTime(a.acknowledged_at)}</span>`
+        : `<button class="link ack-cell" data-ack="${a.id}">确认</button>`}
+    </div>`).join("");
+}
+
+function bindAckButtons(view) {
+  view.querySelectorAll("[data-ack]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      try {
+        await api(`/api/alerts/${btn.dataset.ack}/ack`, { method: "POST" });
+        toast("告警已确认");
+        render();
+      } catch (e) { toast(`确认失败：${e.message}`); }
+    }));
 }
 
 /* ------------------------------------------------------------------ 概览 */
@@ -260,6 +280,7 @@ async function viewOverview(view) {
     S.overviewGroupFilter = overviewFilter.value;
     render();
   });
+  bindAckButtons(view);
   paintCharts();
 }
 
@@ -522,6 +543,7 @@ async function viewRules(view) {
       ${renderAlerts(alerts)}
     </div>`;
 
+  bindAckButtons(view);
   $("#rule-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const fd = new FormData(ev.target);

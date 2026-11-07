@@ -104,6 +104,21 @@ def test_aggregate_telemetry(tmp_path):
     assert [r["count"] for r in both if r["metric"] == "humidity"] == [1]
 
 
+def test_acknowledge_alert(tmp_path):
+    store = Store(tmp_path / "ack.db")
+    store.upsert_device("s1", "传感器", "sensor", {})
+    store.insert_alert(None, "s1", "测试告警")
+    alert_id = store.list_alerts()[0]["id"]
+
+    assert store.acknowledge_alert(999) is None  # 不存在
+
+    acked = store.acknowledge_alert(alert_id)
+    assert acked["acknowledged"] == 1 and acked["acknowledged_at"] > 0
+    assert store.list_alerts(ack="open") == []
+    assert len(store.list_alerts(ack="acked")) == 1
+    assert store.list_alerts()[0]["acknowledged"] == 1
+
+
 def test_commands_queue_and_deliver(tmp_path):
     store = Store(tmp_path / "a.db")
     store.upsert_device("light-1", "智能灯", "light", {})

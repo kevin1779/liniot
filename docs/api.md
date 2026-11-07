@@ -177,11 +177,18 @@ PATCH 支持局部更新 `{"enabled": false}` / `{"threshold": 28}` / `{"note": 
 [ { "id": 2, "rule_id": 1, "device_id": "sensor-1",
     "message": "设备 sensor-1 的 temperature = 31.2 > 30（高温）",
     "level": "warning", "ts": 1793353000.1,
-    "diagnosis": "传感器可能受热源干扰，建议检查安装位置并校准。" } ]
+    "diagnosis": "传感器可能受热源干扰，建议检查安装位置并校准。",
+    "acknowledged": 1, "acknowledged_at": 1793353100.0 } ]
 ```
 
 - `level` 为 `warning`（阈值规则）或 `anomaly`（EWMA 统计异常检测）；
-- `diagnosis` 由 AI 助手异步生成（需配置 LLM Key），可能先为 `null` 稍后补全。
+- `diagnosis` 由 AI 助手异步生成（需配置 LLM Key），可能先为 `null` 稍后补全；
+- `ack` 查询参数：`open` 只返回未确认，`acked` 只返回已确认，省略返回全部。
+
+### `POST /api/alerts/{id}/ack`
+
+标记告警已处理（人工确认闭环），返回更新后的告警；不存在返回 404。
+确认后通过 WebSocket 广播 `alert_ack` 事件，多端同步。
 
 ## 场景联动
 

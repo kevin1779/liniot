@@ -87,7 +87,7 @@ class DeviceService:
             alert_id = self.store.insert_alert(None, device_id, message, level="anomaly")
             alert = {"id": alert_id, "rule_id": None, "device_id": device_id,
                      "message": message, "level": "anomaly", "ts": time.time(),
-                     "diagnosis": None}
+                     "diagnosis": None, "acknowledged": 0, "acknowledged_at": None}
             self.bus.publish({"type": "alert", "data": alert})
             notify_webhook(self.webhook_url, alert)
             notify_channels(self.alert_webhooks, alert)

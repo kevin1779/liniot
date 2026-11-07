@@ -235,6 +235,23 @@ def test_overview_series_includes_group(client):
     assert series["s1"]["metrics"]["temperature"][-1]["value"] == 25
 
 
+def test_alert_acknowledge_flow(client):
+    client.post("/api/devices", json={"id": "s1", "name": "s", "type": "sensor"})
+    client.post("/api/rules", json={"device_id": "s1", "metric": "temperature",
+                                    "op": ">", "threshold": 30})
+    client.post("/api/devices/s1/telemetry", json={"metric": "temperature", "value": 31})
+
+    open_alerts = client.get("/api/alerts", params={"ack": "open"}).json()
+    assert len(open_alerts) == 1 and open_alerts[0]["acknowledged"] == 0
+
+    acked = client.post(f"/api/alerts/{open_alerts[0]['id']}/ack").json()
+    assert acked["acknowledged"] == 1 and acked["acknowledged_at"] > 0
+
+    assert client.get("/api/alerts", params={"ack": "open"}).json() == []
+    assert len(client.get("/api/alerts", params={"ack": "acked"}).json()) == 1
+    assert client.post("/api/alerts/999/ack").status_code == 404
+
+
 def test_validation_errors(client):
     assert client.post("/api/devices", json={"name": "", "type": "x"}).status_code == 422
     assert client.post("/api/devices", json={"id": "非法ID", "name": "x"}).status_code == 422

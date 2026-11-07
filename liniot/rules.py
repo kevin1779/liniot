@@ -111,7 +111,7 @@ class RuleEngine:
         alert_id = self.store.insert_alert(rule["id"], device_id, message)
         alert = {"id": alert_id, "rule_id": rule["id"], "device_id": device_id,
                  "message": message, "level": "warning", "ts": time.time(),
-                 "diagnosis": None}
+                 "diagnosis": None, "acknowledged": 0, "acknowledged_at": None}
         self.bus.publish({"type": "alert", "data": alert})
         notify_webhook(self.webhook_url, alert)
         notify_channels(self.alert_webhooks, alert)

@@ -30,6 +30,7 @@
       概览页按组聚合视图。
 - [x] *help wanted* **Modbus TCP 适配器**：可配置轮询 Modbus 从站并映射为设备指标，
       参照 `MQTTService` 的「转成 DeviceService 调用」模式（见 docs/modbus.md）。
+- [x] **告警确认闭环**：告警中心支持标记已处理，列表 open/acked 过滤，多端同步。
 - [ ] *help wanted* **多用户与 API Token**：设备 Token 鉴权 + 管理端简单会话，
       保持「默认开箱即用、可选开启鉴权」。
 
