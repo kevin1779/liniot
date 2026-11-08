@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "liniot"
-version = "0.2.0"
+version = "0.3.0"
 description = "LinIoT — 轻量级 AIoT 开源平台：MQTT/HTTP 设备接入、规则引擎、实时仪表盘与 LLM 智能助手"
 readme = "README.md"
 requires-python = ">=3.10"

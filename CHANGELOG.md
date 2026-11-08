@@ -1,29 +1,44 @@
 # Changelog
 
-## 未发布
+## 0.3.0 (2026-11-08)
 
-- 遥测 CSV 导出：新增 `GET /api/devices/{id}/telemetry/export` 流式导出接口
-  （keyset 分批查询，带 UTF-8 BOM，Excel 直接打开不乱码），设备详情页
-  遥测卡片新增导出按钮，链接跟随当前指标；测试增至 60 个
-- 时序聚合查询：新增 `GET /api/devices/{id}/telemetry/aggregate`，支持
-  1m/5m/15m/1h 窗口返回 count/avg/min/max（10 万行 < 100ms）；设备详情页
-  新增聚合视图切换按钮；修复 `ts=0` 被当作缺省时间戳的边界问题；测试增至 62 个
-- 告警诊断限流：同一设备默认 300 秒内只诊断一次（`LINIOT_AI_DIAGNOSIS_COOLDOWN`
-  可调），避免传感器抖动时 LLM 调用失控（社区建议 #10）；测试增至 64 个
-- 设备分组/标签：注册支持 `group` 字段（写入 meta，幂等重注册时保留），
-  `GET /api/devices?group=` 过滤，仪表盘设备列表分组下拉与分组列、
-  详情页分组徽标（good first issue #3）；测试增至 71 个
-- 概览页按分组过滤：分组下拉联动设备在线统计与曲线卡片（补齐 #3 可选项）
-- 告警确认闭环：告警中心支持标记已处理（`POST /api/alerts/{id}/ack`），
-  列表支持 open/acked 过滤，WebSocket `alert_ack` 多端同步；测试增至 79 个
-- 访问令牌鉴权（社区建议 #9 的安全闭环）：设置 `LINIOT_AUTH_TOKEN` 后所有
-  API 与 WebSocket 需携带令牌（仪表盘弹出验证框），health 保持开放；
-  默认不启用、行为不变；README 安全提示同步更新；测试增至 80 个
+社区驱动的功能版本：3 位贡献者的 Issue 与 PR 驱动了本版全部特性。
+
+### 安全与鉴权
+
+- 访问令牌鉴权：设置 `LINIOT_AUTH_TOKEN` 后所有 API 与 WebSocket 需携带
+  令牌（X-Auth-Token / Bearer / ?token=），仪表盘弹出验证框，health 保持
+  开放供探活；默认不启用、行为完全不变（社区建议 #9）
+- README 增加未鉴权部署安全提示（中英）
+
+### 数据与接入
+
+- 遥测 CSV 流式导出：`GET /api/devices/{id}/telemetry/export`（keyset 分批
+  查询、UTF-8 BOM，Excel 直接打开），设备详情页导出按钮（社区 PR #8）
+- 时序聚合查询：`GET /api/devices/{id}/telemetry/aggregate` 支持
+  1m/5m/15m/1h 窗口返回 count/avg/min/max（10 万行 < 100ms）
+- Modbus TCP 接入适配器：`LINIOT_MODBUS_MAP` 寄存器映射（四类寄存器 +
+  可选系数）后台轮询转遥测；pymodbus 为可选依赖，未安装不影响平台（社区建议 #5）
+
+### 告警与自动化
+
+- 告警确认闭环：`POST /api/alerts/{id}/ack` 标记已处理，open/acked 过滤，
+  WebSocket `alert_ack` 多端同步
 - 告警多渠道推送：`LINIOT_ALERT_WEBHOOKS` 支持钉钉/飞书/企业微信群机器人
-  （按 URL 自动识别报文），规则与异常告警均推送；测试增至 77 个
-- Modbus TCP 接入适配器：`LINIOT_MODBUS_MAP` 配置寄存器映射（四类寄存器 +
-  可选系数），后台线程轮询转遥测；pymodbus 为可选依赖，未安装不影响平台
-  （社区建议 #5）；测试增至 70 个
+  （按 URL 自动识别报文）
+- 告警诊断限流：同一设备默认 300 秒内只诊断一次
+  （`LINIOT_AI_DIAGNOSIS_COOLDOWN` 可调），避免传感器抖动失控（社区建议 #10）
+
+### 界面
+
+- 设备分组/标签：注册 group 字段（幂等重注册时保留）、列表分组过滤与
+  分组列、详情页分组徽标（good first issue #3）
+- 概览页按分组过滤曲线与在线统计
+
+### 其他
+
+- 修复 `ts=0` 被当作缺省时间戳的边界问题
+- 测试增至 80 个
 
 ## 0.2.0 (2026-10-31)
 
