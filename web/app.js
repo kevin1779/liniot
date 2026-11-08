@@ -60,6 +60,31 @@ function ago(ts) {
 }
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
+/* ------------------------------------------------------------------ 主题 */
+const THEME_KEY = "liniot-theme";
+const cssVar = (name, fallback) => {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name);
+  return (value && value.trim()) || fallback;
+};
+function currentTheme() {
+  return document.documentElement.getAttribute("data-theme") || "light";
+}
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  try { localStorage.setItem(THEME_KEY, theme); } catch (e) { /* 隐私模式忽略 */ }
+  const btn = document.getElementById("themeToggle");
+  if (btn) btn.textContent = theme === "dark" ? "浅色模式" : "深色模式";
+}
+function initTheme() {
+  let theme = "light";
+  try { theme = localStorage.getItem(THEME_KEY) || "light"; } catch (e) { /* 同上 */ }
+  applyTheme(theme);
+}
+function toggleTheme() {
+  applyTheme(currentTheme() === "dark" ? "light" : "dark");
+  render(true);   // 原地重绘当前视图（Canvas 图表随之重画），不做整页刷新
+}
+
 const METRIC_STYLE = {
   temperature: { color: "#f59e0b", unit: "°C", label: "温度" },
   humidity: { color: "#2f7bf6", unit: "%", label: "湿度" },
@@ -90,7 +115,7 @@ function drawChart(canvas, points, color) {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, w, h);
   if (!points || points.length < 2) {
-    ctx.fillStyle = "#8a99b5"; ctx.font = "12px sans-serif";
+    ctx.fillStyle = cssVar("--muted", "#8a99b5"); ctx.font = "12px sans-serif";
     ctx.fillText("等待数据…", w / 2 - 30, h / 2);
     return;
   }
@@ -104,7 +129,8 @@ function drawChart(canvas, points, color) {
   const x = (i) => padL + (iw * i) / (points.length - 1);
   const y = (v) => padT + ih - ((v - min) * ih) / (max - min);
 
-  ctx.strokeStyle = "#e8eef7"; ctx.fillStyle = "#8a99b5"; ctx.font = "10px ui-monospace, Menlo";
+  ctx.strokeStyle = cssVar("--border", "#e8eef7");
+  ctx.fillStyle = cssVar("--muted", "#8a99b5"); ctx.font = "10px ui-monospace, Menlo";
   ctx.textAlign = "right";
   for (let g = 0; g <= 3; g++) {
     const gy = padT + (ih * g) / 3;
@@ -770,6 +796,8 @@ async function viewAI(view) {
 
 /* ------------------------------------------------------------------ 启动 */
 async function boot() {
+  initTheme();
+  $("#themeToggle").addEventListener("click", toggleTheme);
   try {
     S.health = await api("/api/health");
     const mqttBadge = $("#badge-mqtt"), aiBadge = $("#badge-ai");
