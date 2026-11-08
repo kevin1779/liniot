@@ -283,6 +283,58 @@ def test_auth_token_mode(tmp_path):
             assert ws.receive_json()["type"] == "hello"
 
 
+def test_multi_user_token_roles(tmp_path):
+    from fastapi.testclient import TestClient
+    from liniot.config import Config
+    from liniot.main import create_app
+
+    config = Config(db_path=tmp_path / "roles.db", web_dir=tmp_path / "no-web",
+                    auth_token="admin-key",
+                    api_tokens=({"name": "李四", "token": "dev-key", "role": "device"},
+                                {"name": "王五", "token": "view-key", "role": "viewer"}))
+    app = create_app(config)
+    with TestClient(app) as c:
+        # 管理员注册设备 + 建规则
+        h_admin = {"X-Auth-Token": "admin-key"}
+        assert c.get("/api/devices", headers=h_admin).status_code == 200
+        assert c.post("/api/devices", json={"id": "s1", "name": "s", "type": "sensor"},
+                      headers=h_admin).status_code == 201
+
+        h_dev = {"X-Auth-Token": "dev-key"}
+        h_view = {"X-Auth-Token": "view-key"}
+
+        # device 角色：可上报、可拉命令；不可管理（规则/AI/删除）
+        assert c.post("/api/devices/s1/telemetry", json={"metric": "temperature", "value": 25},
+                      headers=h_dev).status_code == 200
+        assert c.get("/api/devices/s1/commands", headers=h_dev).status_code == 200
+        assert c.post("/api/rules", json={"metric": "t", "op": ">", "threshold": 1},
+                      headers=h_dev).status_code == 403
+        assert c.post("/api/ai/chat", json={"message": "x"},
+                      headers=h_dev).status_code == 403
+        assert c.delete("/api/devices/s1", headers=h_dev).status_code == 403
+
+        # viewer 角色：可读；任何写操作 403
+        assert c.get("/api/devices", headers=h_view).status_code == 200
+        assert c.post("/api/devices/s1/telemetry", json={"metric": "temperature", "value": 26},
+                      headers=h_view).status_code == 403
+        assert c.delete("/api/devices/s1", headers=h_view).status_code == 403
+
+        # 无效令牌 401（与角色无权 403 区分）
+        assert c.get("/api/devices", headers={"X-Auth-Token": "bad"}).status_code == 401
+
+        # WebSocket：任一有效主体可订阅
+        with c.websocket_connect("/ws?token=view-key") as ws:
+            assert ws.receive_json()["type"] == "hello"
+
+
+def test_parse_api_tokens(tmp_path):
+    from liniot.config import parse_api_tokens
+
+    entries = parse_api_tokens("张三:t1:admin; 李四:t2:device; bad; 王五:t3:hack")
+    assert [e["name"] for e in entries] == ["张三", "李四"]
+    assert entries[1]["role"] == "device"
+
+
 def test_validation_errors(client):
     assert client.post("/api/devices", json={"name": "", "type": "x"}).status_code == 422
     assert client.post("/api/devices", json={"id": "非法ID", "name": "x"}).status_code == 422

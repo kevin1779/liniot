@@ -2,10 +2,11 @@
 
 Base URL：`http://<host>:8000/api`。交互式文档（Swagger UI）在 `/docs`。
 
-## 访问令牌（可选）
+## 访问令牌与角色（可选）
 
-设置环境变量 `LINIOT_AUTH_TOKEN` 后，除 `GET /api/health` 外的所有 `/api/*`
-端点与 WebSocket 都需要携带令牌（Swagger UI 里点 Authorize 即可调试）：
+未配置任何令牌时不做限制（开箱即用）。配置后，除 `GET /api/health` 外的
+所有 `/api/*` 端点与 WebSocket 都需要携带令牌（Swagger UI 里点 Authorize
+即可调试）：
 
 ```
 X-Auth-Token: <令牌>
@@ -14,7 +15,22 @@ Authorization: Bearer <令牌>
 ```
 
 - WebSocket：`/ws?token=<令牌>`（浏览器 WS 无法自定义请求头）
-- 未配置令牌时不做任何限制（开箱即用）；401 表示令牌缺失或错误
+- **401** = 令牌缺失或错误；**403** = 角色无权执行该操作
+
+两种配置方式：
+
+1. 共享管理员令牌：`LINIOT_AUTH_TOKEN=<令牌>`，视为 admin；
+2. 多用户令牌（分号分隔多条）：`LINIOT_API_TOKENS="名称:令牌:角色;..."`。
+
+角色矩阵：
+
+| 角色 | 权限 |
+|---|---|
+| `admin` | 全部操作 |
+| `device` | 读取 + 上报遥测/状态 + 拉取命令 + 设备自注册（供设备侧使用） |
+| `viewer` | 只读 |
+
+示例：`LINIOT_API_TOKENS="张三:t1:admin;李四:t2:device;王五:t3:viewer"`
 
 ## 健康与概览
 

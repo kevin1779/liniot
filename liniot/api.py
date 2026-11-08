@@ -6,6 +6,7 @@ import csv
 import io
 import json
 import logging
+import re
 import time
 from collections.abc import Iterator
 from typing import Any
@@ -26,19 +27,45 @@ WINDOW_MAP = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
 
 
 def build_router(store, bus, rules, devices: DeviceService, config: Config):
-    def require_token(request: Request) -> None:
-        """访问令牌校验：未配置令牌时不做任何限制（开箱即用）。
+    DEVICE_WRITE_RE = re.compile(
+        r"^/api/devices(?:$|/[^/]+/(?:telemetry|status|commands)$)")
 
-        支持 X-Auth-Token 头或 Authorization: Bearer <token>。
-        """
-        if not config.auth_token:
-            return
+    def resolve_principal(request: Request) -> dict[str, str] | None:
+        """解析访问主体；未配置任何令牌时全员匿名管理员（开箱即用）。"""
+        if not config.auth_token and not config.api_tokens:
+            return {"name": "anonymous", "role": "admin"}
         supplied = request.headers.get("x-auth-token") or ""
         if not supplied:
             auth = request.headers.get("authorization") or ""
             supplied = auth[7:] if auth.lower().startswith("bearer ") else ""
-        if supplied != config.auth_token:
+        if config.auth_token and supplied == config.auth_token:
+            return {"name": "shared", "role": "admin"}
+        for entry in config.api_tokens:
+            if entry["token"] == supplied:
+                return {"name": entry["name"], "role": entry["role"]}
+        return None
+
+    def require_token(request: Request) -> None:
+        """访问控制：401 = 令牌无效；403 = 角色无权执行该操作。
+
+        角色矩阵（Issue #9 延伸的多用户体系）：
+            admin  全部操作
+            device 读取 + 上报遥测/状态 + 拉取命令 + 设备自注册
+            viewer 只读
+        """
+        principal = resolve_principal(request)
+        if principal is None:
             raise HTTPException(401, "需要有效的访问令牌")
+        request.state.principal = principal
+        role, method, path = principal["role"], request.method, request.url.path
+        if role == "admin":
+            return
+        if role == "viewer" and method == "GET":
+            return
+        if role == "device" and (method == "GET" or
+                                 (method == "POST" and DEVICE_WRITE_RE.match(path))):
+            return
+        raise HTTPException(403, f"角色 {role} 无权执行该操作")
 
     def device_or_404(device_id: str) -> dict[str, Any]:
         device = store.get_device(device_id)
@@ -268,12 +295,15 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config):
     return [open_router, router]
 
 
-def register_websocket(app, store, bus, devices: DeviceService,
-                       auth_token: str = "") -> None:
+def register_websocket(app, store, bus, devices: DeviceService, config) -> None:
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
-        # 配置令牌后，WebSocket 用 ?token= 携带（浏览器 WS 无法自定义请求头）
-        if auth_token and websocket.query_params.get("token") != auth_token:
+        # 配置令牌后，WebSocket 用 ?token= 携带（浏览器 WS 无法自定义请求头）；
+        # admin/device/viewer 任一有效主体均可订阅实时事件
+        supplied = websocket.query_params.get("token") or ""
+        valid = (config.auth_token and supplied == config.auth_token) or \
+            any(e["token"] == supplied for e in config.api_tokens)
+        if (config.auth_token or config.api_tokens) and not valid:
             await websocket.close(code=4401)
             return
         await websocket.accept()

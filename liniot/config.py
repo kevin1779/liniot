@@ -1,9 +1,12 @@
 """LinIoT 配置模块：所有配置项均可通过环境变量覆盖。"""
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger("liniot.config")
 
 
 @dataclass
@@ -39,6 +42,29 @@ class AIConfig:
         return bool(self.api_key)
 
 
+ROLES = ("admin", "device", "viewer")
+
+
+def parse_api_tokens(spec: str) -> tuple:
+    """解析多用户令牌（名称:令牌:角色，分号或逗号分隔）；非法条目跳过并告警。
+
+    角色：admin 全部操作 / device 上报与自注册 / viewer 只读（Issue #9 延伸）。
+    """
+    entries = []
+    for chunk in filter(None, (s.strip() for s in spec.replace(";", ",").split(","))):
+        parts = [p.strip() for p in chunk.split(":")]
+        if len(parts) != 3:
+            logger.warning("LINIOT_API_TOKENS 条目格式错误（名称:令牌:角色）: %r", chunk)
+            continue
+        name, token, role = parts
+        if not name or not token or role not in ROLES:
+            logger.warning("LINIOT_API_TOKENS 条目非法（角色须为 %s）: %r",
+                           "/".join(ROLES), chunk)
+            continue
+        entries.append({"name": name, "token": token, "role": role})
+    return tuple(entries)
+
+
 @dataclass
 class ModbusConfig:
     """Modbus TCP 接入配置（Issue #5）。host 为空表示禁用该通道。
@@ -64,7 +90,8 @@ class Config:
     db_path: Path = Path("data/liniot.db")
     retention_points: int = 20000        # 每设备保留的遥测点数上限
     online_timeout: float = 90.0         # 超过该秒数未见心跳视为离线
-    auth_token: str = ""                 # 访问令牌；设置后所有 API 与 WebSocket 需携带
+    auth_token: str = ""                 # 共享管理员令牌（向后兼容）
+    api_tokens: tuple = ()               # 多用户令牌：{"name","token","role"} 列表
     webhook_url: str = ""                # 规则触发时的通用 JSON 回调
     alert_webhooks: tuple = ()           # 群机器人推送（钉钉/飞书/企微自动识别）
     mqtt: MQTTConfig = field(default_factory=MQTTConfig)
@@ -84,6 +111,7 @@ def load_config() -> Config:
         retention_points=int(env.get("LINIOT_RETENTION", "20000")),
         online_timeout=float(env.get("LINIOT_ONLINE_TIMEOUT", "90")),
         auth_token=env.get("LINIOT_AUTH_TOKEN", ""),
+        api_tokens=parse_api_tokens(env.get("LINIOT_API_TOKENS", "")),
         webhook_url=env.get("LINIOT_WEBHOOK_URL", ""),
         alert_webhooks=tuple(u for u in
                              (s.strip() for s in env.get("LINIOT_ALERT_WEBHOOKS", "").replace(";", ",").split(","))

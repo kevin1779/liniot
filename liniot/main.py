@@ -87,7 +87,7 @@ def create_app(config: Config | None = None) -> FastAPI:
                        allow_headers=["*"])
     for router in build_router(store, bus, rules, devices, config):
         app.include_router(router)
-    register_websocket(app, store, bus, devices, auth_token=config.auth_token)
+    register_websocket(app, store, bus, devices, config)
 
     if config.web_dir.is_dir():
         app.mount("/", StaticFiles(directory=str(config.web_dir), html=True), name="web")
