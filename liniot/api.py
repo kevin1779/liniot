@@ -241,6 +241,12 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config):
         device_or_404(device_id)
         return devices.poll_commands(device_id)
 
+    @router.get("/devices/{device_id}/shadow")
+    def get_shadow(device_id: str) -> dict[str, Any]:
+        """设备影子：desired/reported/delta——设备重连后单请求即可同步待执行状态。"""
+        device_or_404(device_id)
+        return devices.get_shadow(device_id)
+
     # ------------------------------------------------------------------ 规则
 
     @router.get("/rules")

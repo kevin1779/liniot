@@ -403,3 +403,59 @@ def test_dynamic_token_management(tmp_path):
         # WebSocket 携带动态令牌可订阅；错误令牌拒绝
         with c.websocket_connect(f"/ws?token={admin_body['token']}") as ws:
             assert ws.receive_json()["type"] == "hello"
+
+
+def test_device_shadow_flow(tmp_path):
+    """影子端到端：期望写入 → delta 展示 → 上报追平 → 宽限期外自动补发。"""
+    from fastapi.testclient import TestClient
+    from liniot.config import Config
+    from liniot.main import create_app
+
+    app = create_app(Config(db_path=tmp_path / "shadow.db", web_dir=tmp_path / "no-web"))
+    with TestClient(app) as client:
+        client.post("/api/devices", json={"id": "light-1", "name": "智能灯", "type": "light"})
+
+        # 尚无任何状态：空影子
+        shadow = client.get("/api/devices/light-1/shadow").json()
+        assert shadow["desired"] == {} and shadow["reported"] == {}
+        assert shadow["delta"] == {} and shadow["version"] == 0
+
+        # 控制端下发（设备未拉取）：desired 落影子，delta 非空
+        client.post("/api/devices/light-1/properties", json={"properties": {"power": True}})
+        shadow = client.get("/api/devices/light-1/shadow").json()
+        assert shadow["desired"] == {"power": True}
+        assert shadow["delta"] == {"power": True}
+        assert shadow["version"] == 1
+
+        # 设备拉取命令（v0.x 兼容通道行为不变）
+        commands = client.get("/api/devices/light-1/commands").json()
+        assert commands[0]["payload"] == {"property": "power", "value": True}
+
+        # 心跳（空属性）不算状态变化，影子版本不动
+        version = client.get("/api/devices/light-1/shadow").json()["version"]
+        client.post("/api/devices/light-1/status",
+                    json={"status": "online", "properties": {}})
+        assert client.get("/api/devices/light-1/shadow").json()["version"] == version
+
+        # 设备执行并回报：delta 清空
+        client.post("/api/devices/light-1/status",
+                    json={"status": "online", "properties": {"power": True}})
+        shadow = client.get("/api/devices/light-1/shadow").json()
+        assert shadow["delta"] == {} and shadow["reported"] == {"power": True}
+
+        # 补发兜底：命令被拉走但从未执行——把投递时间拨到宽限期外再拉
+        client.post("/api/devices/light-1/properties", json={"properties": {"brightness": 80}})
+        assert client.get("/api/devices/light-1/commands").json()
+        store = app.state.liniot["store"]
+        store.conn.execute(
+            "UPDATE commands SET delivered_at=delivered_at-11"
+            " WHERE device_id='light-1' AND property_key='brightness'")
+        store.conn.commit()
+        requeued = client.get("/api/devices/light-1/commands").json()
+        assert len(requeued) == 1
+        assert requeued[0]["payload"]["property"] == "brightness"
+        assert requeued[0]["payload"]["value"] == 80
+        assert requeued[0]["payload"]["reason"] == "shadow_retry"
+
+        # 不存在的设备 404
+        assert client.get("/api/devices/ghost/shadow").status_code == 404

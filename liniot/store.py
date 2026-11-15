@@ -77,7 +77,8 @@ CREATE TABLE IF NOT EXISTS commands (
     device_id   TEXT NOT NULL,
     payload     TEXT NOT NULL,
     created_at  REAL NOT NULL,
-    delivered_at REAL
+    delivered_at REAL,
+    property_key TEXT
 );
 CREATE TABLE IF NOT EXISTS api_tokens (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,6 +88,14 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     created_at   REAL NOT NULL,
     last_used_at REAL,
     revoked_at   REAL
+);
+CREATE TABLE IF NOT EXISTS shadows (
+    device_id   TEXT PRIMARY KEY,
+    desired     TEXT NOT NULL DEFAULT '{}',
+    reported    TEXT NOT NULL DEFAULT '{}',
+    version     INTEGER NOT NULL DEFAULT 0,
+    desired_ts  REAL,
+    reported_ts REAL
 );
 CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
 """
@@ -130,6 +139,10 @@ class Store:
                     "ALTER TABLE alerts ADD COLUMN acknowledged INTEGER NOT NULL DEFAULT 0")
             if "acknowledged_at" not in columns:
                 self.conn.execute("ALTER TABLE alerts ADD COLUMN acknowledged_at REAL")
+            # v0.5 影子补发：commands 表加 property_key 列（存量行留空不影响）
+            cmd_columns = {row["name"] for row in self.conn.execute("PRAGMA table_info(commands)")}
+            if "property_key" not in cmd_columns:
+                self.conn.execute("ALTER TABLE commands ADD COLUMN property_key TEXT")
             self.conn.commit()
 
     # ------------------------------------------------------------------ 设备
@@ -173,6 +186,7 @@ class Store:
             self.conn.execute("DELETE FROM telemetry WHERE device_id=?", (device_id,))
             self.conn.execute("DELETE FROM rules WHERE device_id=?", (device_id,))
             self.conn.execute("DELETE FROM commands WHERE device_id=?", (device_id,))
+            self.conn.execute("DELETE FROM shadows WHERE device_id=?", (device_id,))
             self.conn.commit()
 
     def set_status(self, device_id: str, status: str,
@@ -486,8 +500,10 @@ class Store:
         now = time.time()
         with self.lock:
             cur = self.conn.execute(
-                "INSERT INTO commands(device_id,payload,created_at) VALUES(?,?,?)",
-                (device_id, json.dumps(payload, ensure_ascii=False), now),
+                "INSERT INTO commands(device_id,payload,created_at,property_key)"
+                " VALUES(?,?,?,?)",
+                (device_id, json.dumps(payload, ensure_ascii=False), now,
+                 payload.get("property")),
             )
             self.conn.commit()
             return {"id": cur.lastrowid, "device_id": device_id,
@@ -510,6 +526,102 @@ class Store:
                 self.conn.commit()
         return [{"id": r["id"], "payload": json.loads(r["payload"]),
                  "created_at": r["created_at"]} for r in rows]
+
+    # ------------------------------------------------------------------ 设备影子
+
+    @staticmethod
+    def _row_to_shadow(row: sqlite3.Row) -> dict[str, Any]:
+        return {"device_id": row["device_id"],
+                "desired": json.loads(row["desired"]),
+                "reported": json.loads(row["reported"]),
+                "version": row["version"],
+                "desired_ts": row["desired_ts"],
+                "reported_ts": row["reported_ts"]}
+
+    def get_shadow(self, device_id: str) -> dict[str, Any]:
+        """读影子；设备尚无影子时返回全空结构（version 0）。"""
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT * FROM shadows WHERE device_id=?", (device_id,)).fetchone()
+        if row is None:
+            return {"device_id": device_id, "desired": {}, "reported": {},
+                    "version": 0, "desired_ts": None, "reported_ts": None}
+        return self._row_to_shadow(row)
+
+    def _merge_shadow(self, device_id: str, field: str,
+                      patch: dict[str, Any]) -> dict[str, Any]:
+        """合并 desired/reported 一侧并升版本（delta 由读取方按需计算）。"""
+        if field not in ("desired", "reported"):
+            raise ValueError(field)
+        with self.lock:
+            shadow = self.get_shadow(device_id)
+            merged = {**shadow[field], **patch}
+            version = shadow["version"] + 1
+            now = time.time()
+            desired = merged if field == "desired" else shadow["desired"]
+            reported = shadow["reported"] if field == "desired" else merged
+            desired_ts = now if field == "desired" else shadow["desired_ts"]
+            reported_ts = shadow["reported_ts"] if field == "desired" else now
+            self.conn.execute(
+                "INSERT INTO shadows(device_id,desired,reported,version,desired_ts,reported_ts)"
+                " VALUES(?,?,?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET"
+                " desired=excluded.desired, reported=excluded.reported,"
+                " version=excluded.version, desired_ts=excluded.desired_ts,"
+                " reported_ts=excluded.reported_ts",
+                (device_id, json.dumps(desired, ensure_ascii=False),
+                 json.dumps(reported, ensure_ascii=False), version,
+                 desired_ts, reported_ts),
+            )
+            self.conn.commit()
+        return self.get_shadow(device_id)
+
+    def set_desired(self, device_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """控制端写期望状态；空 patch 直接返回现值。"""
+        if not patch:
+            return self.get_shadow(device_id)
+        return self._merge_shadow(device_id, "desired", patch)
+
+    def set_reported(self, device_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """设备侧写上报状态；空 patch 直接返回现值。"""
+        if not patch:
+            return self.get_shadow(device_id)
+        return self._merge_shadow(device_id, "reported", patch)
+
+    def requeue_shadow_commands(self, device_id: str, delta: dict[str, Any],
+                                grace: float = 10.0) -> list[dict[str, Any]]:
+        """影子补发：delta 中「无在途命令、且最近一次投递已超过 grace 秒」的键重新入队。
+
+        grace 窗口覆盖设备拉取→执行→回报的耗时，避免回报未及到达时重复下发；
+        payload 带 reason=shadow_retry 供设备端识别。返回新入队的命令列表。
+        """
+        if not delta:
+            return []
+        now = time.time()
+        requeued: list[dict[str, Any]] = []
+        with self.lock:
+            for key, value in delta.items():
+                row = self.conn.execute(
+                    "SELECT SUM(delivered_at IS NULL) AS pending,"
+                    " MAX(delivered_at) AS last_delivered"
+                    " FROM commands WHERE device_id=? AND property_key=?",
+                    (device_id, key),
+                ).fetchone()
+                if row["pending"]:
+                    continue  # 在途命令还没被拉走，等设备自行拉取即可
+                if row["last_delivered"] is not None and now - row["last_delivered"] < grace:
+                    continue  # 刚投递过，先给设备留执行 + 回报的时间
+                payload = {"property": key, "value": value, "reason": "shadow_retry"}
+                cur = self.conn.execute(
+                    "INSERT INTO commands(device_id,payload,created_at,property_key)"
+                    " VALUES(?,?,?,?)",
+                    (device_id, json.dumps(payload, ensure_ascii=False), now, key),
+                )
+                requeued.append({"id": cur.lastrowid, "device_id": device_id,
+                                 "payload": payload, "created_at": now,
+                                 "delivered_at": None})
+            if requeued:
+                self.conn.commit()
+        return requeued
 
     # ------------------------------------------------------------------ API 令牌
 

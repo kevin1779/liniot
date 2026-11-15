@@ -170,6 +170,7 @@ tr.row-link:hover { background: var(--panel-2); }
 .pill.role-admin { background: var(--accent-dim); color: var(--accent); }
 .pill.role-device { background: rgba(31, 158, 107, .10); color: var(--green); }
 .pill.role-viewer { background: var(--panel-2); color: var(--muted); }
+.pill.pending { background: rgba(245, 166, 35, .12); color: var(--orange); }
 
 /* 访问令牌：签发后的一次性明文展示 */
 .token-reveal { border-left: 3px solid var(--green); }

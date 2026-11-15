@@ -99,12 +99,35 @@ class DeviceService:
         if device is None:
             raise UnknownDevice(device_id)
         self.bus.publish({"type": "device", "data": self.view(device)})
+        if properties:
+            # 设备回报的属性同步进影子 reported（心跳空属性不算状态变化）
+            shadow = self.store.set_reported(device_id, properties)
+            self.bus.publish({"type": "shadow", "data": self._shadow_view(shadow)})
         return device
+
+    # ------------------------------------------------------------------ 影子
+
+    @staticmethod
+    def _shadow_view(shadow: dict[str, Any]) -> dict[str, Any]:
+        """附加 delta：desired 与 reported 不一致的键，设备重连一个请求即知该做什么。"""
+        out = dict(shadow)
+        out["delta"] = {key: value for key, value in shadow["desired"].items()
+                        if shadow["reported"].get(key) != value}
+        return out
+
+    def get_shadow(self, device_id: str) -> dict[str, Any]:
+        if self.store.get_device(device_id) is None:
+            raise UnknownDevice(device_id)
+        return self._shadow_view(self.store.get_shadow(device_id))
 
     # ------------------------------------------------------------------ 命令
 
     def set_properties(self, device_id: str, patch: dict[str, Any]) -> list[dict[str, Any]]:
-        """下发烧写设备属性（如 {power: true}）。命令进入队列，设备自行拉取/订阅后回报状态。"""
+        """下发烧写设备属性（如 {power: true}）。
+
+        命令进入队列由设备拉取/订阅（与 v0.x 行为一致），同时写入影子
+        desired——设备离线时控制意图持久可见，重连后可凭 delta 补齐状态。
+        """
         if self.store.get_device(device_id) is None:
             raise UnknownDevice(device_id)
         commands = []
@@ -115,10 +138,25 @@ class DeviceService:
                 self.mqtt.publish_command(device_id, payload)
             commands.append(command)
             self.bus.publish({"type": "command", "data": command})
+        shadow = self.store.set_desired(device_id, patch)
+        self.bus.publish({"type": "shadow", "data": self._shadow_view(shadow)})
         return commands
 
     def poll_commands(self, device_id: str) -> list[dict[str, Any]]:
-        return self.store.pending_commands(device_id)
+        commands = self.store.pending_commands(device_id)
+        # 影子补发：命令可能已投递但设备拉取后掉线/未执行——desired 与
+        # reported 不一致且超过宽限窗口的键自动重新入队，直到 reported 追上
+        shadow = self.store.get_shadow(device_id)
+        delta = {key: value for key, value in shadow["desired"].items()
+                 if shadow["reported"].get(key) != value}
+        for command in self.store.requeue_shadow_commands(device_id, delta):
+            payload = {"property": command["payload"]["property"],
+                       "value": command["payload"]["value"]}
+            if self.mqtt is not None:
+                self.mqtt.publish_command(device_id, payload)
+            self.bus.publish({"type": "command", "data": command})
+            commands.append(command)
+        return commands
 
     # ------------------------------------------------------------------ 视图
 

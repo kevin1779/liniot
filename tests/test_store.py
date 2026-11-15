@@ -160,3 +160,63 @@ def test_api_tokens_lifecycle(tmp_path):
     assert store.revoke_token(token["id"])["revoked_at"] == revoked["revoked_at"]
     assert len(store.list_tokens()) == 1  # 已吊销记录仍在列表中
     assert store.revoke_token(999) is None
+
+
+def test_device_shadow_lifecycle(tmp_path):
+    """影子：desired/reported 独立合并、版本递增、删除设备级联清理。"""
+    store = Store(tmp_path / "a.db")
+    shadow = store.get_shadow("light-1")
+    assert shadow["desired"] == {} and shadow["reported"] == {}
+    assert shadow["version"] == 0 and shadow["desired_ts"] is None
+
+    store.set_desired("light-1", {"power": True, "brightness": 80})
+    shadow = store.get_shadow("light-1")
+    assert shadow["desired"] == {"power": True, "brightness": 80}
+    assert shadow["version"] == 1 and shadow["desired_ts"] is not None
+    assert shadow["reported_ts"] is None  # 设备还没回报过
+
+    # 增量合并而非覆盖；reported 独立写入、互不干扰
+    store.set_desired("light-1", {"power": False})
+    store.set_reported("light-1", {"power": True})
+    shadow = store.get_shadow("light-1")
+    assert shadow["desired"] == {"power": False, "brightness": 80}
+    assert shadow["reported"] == {"power": True}
+    assert shadow["version"] == 3
+    assert shadow["reported_ts"] is not None
+
+    # 空 patch 不升版本
+    assert store.set_desired("light-1", {})["version"] == 3
+    assert store.set_reported("light-1", {})["version"] == 3
+
+    # 删除设备级联清理影子
+    store.upsert_device("light-1", "智能灯", "light", {})
+    store.delete_device("light-1")
+    assert store.get_shadow("light-1")["version"] == 0
+
+
+def test_shadow_command_requeue(tmp_path):
+    """补发规则：无在途命令且超过宽限的键才重新入队，payload 带影子标记。"""
+    store = Store(tmp_path / "a.db")
+
+    # 无命令历史：delta 键直接入队，payload 带 reason=shadow_retry
+    requeued = store.requeue_shadow_commands("light-1", {"power": True}, grace=0)
+    assert [c["payload"]["property"] for c in requeued] == ["power"]
+    assert requeued[0]["payload"]["reason"] == "shadow_retry"
+
+    # 在途（未拉取）：不重复入队
+    assert store.requeue_shadow_commands("light-1", {"power": True}, grace=0) == []
+
+    # 拉走后仍在宽限窗口内：不补发（给设备留执行+回报时间）
+    store.pending_commands("light-1")
+    assert store.requeue_shadow_commands("light-1", {"power": True}, grace=10) == []
+
+    # 宽限期外且 reported 未追平：补发
+    assert len(store.requeue_shadow_commands("light-1", {"power": True}, grace=0)) == 1
+
+    # delta 为空时无事发生
+    assert store.requeue_shadow_commands("light-1", {}, grace=0) == []
+
+    # property_key 按 payload.property 落列，供按键查询
+    store2 = Store(tmp_path / "b.db")
+    store2.queue_command("s1", {"property": "brightness", "value": 50})
+    assert store2.requeue_shadow_commands("s1", {"brightness": 50}, grace=0) == []

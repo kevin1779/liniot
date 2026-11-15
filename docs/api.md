@@ -188,7 +188,8 @@ curl -X POST http://127.0.0.1:8000/api/devices/light-1/properties \
   -H 'Content-Type: application/json' -d '{"properties":{"power":true}}'
 ```
 
-命令进入队列；若启用 MQTT 同时向 `liniot/light-1/command` 广播。
+命令进入队列；若启用 MQTT 同时向 `liniot/light-1/command` 广播。同时把
+属性写入影子 `desired`——设备离线时控制意图持久保留。
 
 ### `GET /api/devices/{id}/commands`（设备拉取）
 
@@ -198,7 +199,29 @@ curl -X POST http://127.0.0.1:8000/api/devices/light-1/properties \
 [ { "id": 3, "payload": {"property": "power", "value": true}, "created_at": 1793353000.1 } ]
 ```
 
-设备执行后应调用 `POST /status` 回报新属性，形成控制闭环。
+设备执行后应调用 `POST /status` 回报新属性，形成控制闭环。拉取时若影子
+存在 delta 且某键的命令已投递超过 10 秒仍未回报生效，平台会自动重新入队
+（payload 带 `"reason": "shadow_retry"`），直到 reported 追上 desired。
+
+### `GET /api/devices/{id}/shadow`（设备影子）
+
+```json
+{
+  "device_id": "light-1",
+  "desired":  {"power": true,  "brightness": 80},
+  "reported": {"power": true},
+  "delta":    {"brightness": 80},
+  "version":  3,
+  "desired_ts": 1793440000.0,
+  "reported_ts": 1793440100.0
+}
+```
+
+- **desired**：控制端期望状态（`POST /properties` 写入），设备离线时持久保留；
+- **reported**：设备最后回报的状态（`POST /status` 的 properties 写入）；
+- **delta**：两者不一致的键——设备重连后单个请求即可知道要做什么，
+  逐键执行并回报后 delta 自动清空；
+- **version**：影子每次变更 +1，可用于增量同步判断。
 
 ## 规则与告警
 

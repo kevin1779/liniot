@@ -107,10 +107,30 @@ admin——开箱即用行为与历史版本完全一致；签发首个动态令
 设计取舍：令牌管理界面已交付（签发/吊销/角色绑定，令牌即"用户"）；
 端点级细粒度权限编辑界面仍记录在 ROADMAP，按需推进。
 
+## 设备影子与离线命令
+
+影子落在 `shadows` 表（`device_id` 主键）：`desired`（控制端期望）与
+`reported`（设备回报）两侧独立合并，每次变更 `version` +1。写入路径：
+
+- `POST /properties`（`DeviceService.set_properties`）：命令照旧入队并经
+  MQTT 广播，同时合并进 `desired`——设备离线时控制意图持久可见；
+- `POST /status` 与 MQTT status（`DeviceService.set_status`）：属性照旧
+  合并进 `devices.properties`，同时写 `reported`；心跳的空属性不算变化。
+
+`GET /api/devices/{id}/shadow` 返回 desired/reported/delta/version，delta
+即两侧不一致的键——设备重连后单请求即可知道该做什么，逐键执行并回报后
+delta 自然清空。
+
+**自动补发**：设备拉取命令（`poll_commands`）时对 delta 中每个键检查
+`commands` 表（按 `property_key` 列查询）：无在途命令、且最近一次投递超过
+10 秒宽限窗口（覆盖拉取→执行→回报耗时）→ 重新入队，payload 带
+`reason=shadow_retry`。这把 v0.x「命令只投递一次、拉取后掉线即丢失」的
+缺口补成至少一次送达，最终以 reported 追平 desired 为准。
+
 ## 扩展点
 
 - **新协议接入**：实现一个把报文转成 `DeviceService` 调用的服务类即可（参考
   `MQTTService.handle_telemetry_payload`）。
 - **新规则类型**：在 `rules.py` 增加判定函数与持久化字段；引擎与 API 结构已分离。
-- **替换存储**：`Store` 的接口即契约（devices/telemetry/rules/alerts/commands 五域），
-  可换 PostgreSQL/TimescaleDB 实现同接口。
+- **替换存储**：`Store` 的接口即契约（devices/telemetry/rules/alerts/commands/
+  shadows/api_tokens 七域），可换 PostgreSQL/TimescaleDB 实现同接口。

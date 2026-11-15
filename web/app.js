@@ -213,6 +213,9 @@ function handleEvent(msg) {
     const acked = S.alerts.find((a) => a.id === data.id);
     if (acked) { acked.acknowledged = 1; acked.acknowledged_at = data.acknowledged_at; }
     if (["overview", "rules"].includes(S.route)) refreshCurrent();
+  } else if (type === "shadow") {
+    // 影子变化（期望写入/设备回报）实时刷新设备详情页
+    if (S.route === "device" && S.routeId === data.device_id) refreshCurrent();
   } else if (type === "scene_fired") {
     toast(`场景「${data.name}」已执行：${data.action_device_id}.${data.action_property}`);
     if (S.route === "scenes") refreshCurrent();
@@ -457,6 +460,9 @@ async function viewDevice(view) {
   let device;
   try { device = await api(`/api/devices/${encodeURIComponent(id)}`); }
   catch (e) { view.innerHTML = `<div class="empty">设备不存在：<a class="back-link" href="#/devices">返回列表</a></div>`; return; }
+  let shadow = null;
+  try { shadow = await api(`/api/devices/${encodeURIComponent(id)}/shadow`); }
+  catch (e) { shadow = null; }
 
   const props = Object.entries(device.properties || {}).map(([key, value]) => {
     if (typeof value === "boolean") {
@@ -470,6 +476,22 @@ async function viewDevice(view) {
       <button class="link" data-prop-set="${esc(key)}">设置</button></div>`;
   }).join("");
 
+  // 影子行：期望值（控制端写入，离线持久保留）vs 上报值（设备回报），不一致即同步中
+  const fmtValue = (v) => (typeof v === "boolean" ? (v ? "true" : "false") : esc(JSON.stringify(v)));
+  const shadowRows = shadow
+    ? Object.keys({ ...shadow.desired, ...shadow.reported }).map((key) => {
+        const inDelta = shadow.delta[key] !== undefined;
+        return `<tr>
+          <td class="mono">${esc(key)}</td>
+          <td class="mono">${key in shadow.desired ? fmtValue(shadow.desired[key]) : '<span class="muted">—</span>'}</td>
+          <td class="mono">${key in shadow.reported ? fmtValue(shadow.reported[key]) : '<span class="muted">从未上报</span>'}</td>
+          <td>${inDelta
+            ? `<span class="pill pending">同步中</span>`
+            : `<span class="pill online">已同步</span>`}</td>
+        </tr>`;
+      }).join("")
+    : "";
+
   view.innerHTML = `
     <a class="back-link" href="#/devices">← 返回设备列表</a>
     <div class="page-title" style="margin-top:10px">${deviceIcon(device.type, 26)} ${esc(device.name)}
@@ -480,6 +502,13 @@ async function viewDevice(view) {
     <div class="page-sub mono">${esc(device.id)} · 最后上报 ${device.last_seen ? ago(device.last_seen) : "—"}</div>
     ${props ? `<div class="card mb14"><div class="chart-title mb14">设备属性（下发命令 → 设备确认）</div>
       <div class="props">${props}</div></div>` : ""}
+    ${shadowRows ? `<div class="card mb14"><div class="chart-title mb14">设备影子
+        <span class="pill type" style="margin-left:6px">v${shadow.version}</span></div>
+      <table>
+        <thead><tr><th>属性</th><th>期望值</th><th>上报值</th><th>状态</th></tr></thead>
+        <tbody>${shadowRows}</tbody></table>
+      <div class="muted" style="font-size:11.5px;margin-top:8px">期望值在设备离线时持久保留，设备重连后按 delta 补齐；上报追平期望即「已同步」</div>
+    </div>` : ""}
     <div class="card">
       <div class="chart-card-head"><div class="chart-title">遥测数据</div>
         <span class="head-actions"><span id="metric-tabs"></span>
