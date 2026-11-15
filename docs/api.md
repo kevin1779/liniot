@@ -20,7 +20,10 @@ Authorization: Bearer <令牌>
 两种配置方式：
 
 1. 共享管理员令牌：`LINIOT_AUTH_TOKEN=<令牌>`，视为 admin；
-2. 多用户令牌（分号分隔多条）：`LINIOT_API_TOKENS="名称:令牌:角色;..."`。
+2. 多用户令牌（分号分隔多条）：`LINIOT_API_TOKENS="名称:令牌:角色;..."`；
+3. 仪表盘动态令牌：admin 登录后在「访问令牌」页签发/吊销（`/api/tokens`），
+   数据库只存 SHA-256 哈希，明文仅签发响应中出现一次；默认开放模式下
+   签发首个动态令牌即开启全站鉴权（环境变量令牌不受影响）。
 
 角色矩阵：
 
@@ -31,6 +34,18 @@ Authorization: Bearer <令牌>
 | `viewer` | 只读 |
 
 示例：`LINIOT_API_TOKENS="张三:t1:admin;李四:t2:device;王五:t3:viewer"`
+
+### 令牌管理端点（仅 admin）
+
+![访问令牌管理页](images/tokens.png)
+
+- `GET /api/tokens` — 令牌列表（不回显明文与哈希），含 `last_used_at`
+  最近使用时间与 `revoked_at` 吊销时间；
+- `POST /api/tokens` — 签发：`{"name": "老王", "role": "viewer"}`，响应中的
+  `token` 字段是唯一一次明文展示机会；
+- `DELETE /api/tokens/{id}` — 吊销（保留记录供审计），立即生效；
+- `GET /api/me` — 当前访问主体（`{"name": "老王", "role": "viewer"}`），
+  供前端做角色感知界面。
 
 ## 健康与概览
 

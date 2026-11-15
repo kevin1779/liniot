@@ -77,3 +77,10 @@ class ScenePatch(BaseModel):
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=500)
     history: Optional[list[dict[str, str]]] = None
+
+
+class TokenIn(BaseModel):
+    """签发访问令牌：名称用于列表辨识，角色绑定权限矩阵。"""
+
+    name: str = Field(min_length=1, max_length=64)
+    role: Literal["admin", "device", "viewer"]

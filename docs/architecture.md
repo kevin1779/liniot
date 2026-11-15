@@ -89,19 +89,23 @@ AI 只能调用 `set_property` 一个动作，且属性名必须已存在于设�
 `GET /api/health`（探活）外的全部 `/api/*` 路由，语义分两层：
 
 - **401**：令牌缺失或错误。主体由 `resolve_principal` 解析——依次匹配
-  共享令牌（`LINIOT_AUTH_TOKEN`，视为 admin）与多用户令牌
+  共享令牌（`LINIOT_AUTH_TOKEN`，视为 admin）、多用户令牌
   （`LINIOT_API_TOKENS`，名称:令牌:角色，由 `config.parse_api_tokens`
-  解析，非法条目跳过）；
+  解析，非法条目跳过）与数据库动态令牌（`api_tokens` 表，只存 SHA-256
+  哈希，由仪表盘「访问令牌」页签发/吊销，查找命中即节流刷新
+  `last_used_at`）；
 - **403**：令牌有效但角色无权。角色矩阵：admin 全部；device 读取 +
   上报遥测/状态 + 拉取命令 + 设备自注册（`DEVICE_WRITE_RE` 限定写路径）；
   viewer 只读。
 
-未配置任何令牌时 `resolve_principal` 返回匿名 admin——开箱即用行为与
-历史版本完全一致。WebSocket 通过 `?token=` 查询参数做同一校验
-（浏览器 WS 无法自定义请求头），拒绝码 4401。
+未配置任何令牌（环境变量与数据库均无）时 `resolve_principal` 返回匿名
+admin——开箱即用行为与历史版本完全一致；签发首个动态令牌后匿名访问
+自动关闭。令牌管理端点（`/api/tokens` CRUD）挂在独立的 admin 专属路由组
+（`require_admin`），viewer/device 角色访问直接 403。WebSocket 通过
+`?token=` 查询参数做同一校验（浏览器 WS 无法自定义请求头），拒绝码 4401。
 
-设计取舍：不做端点级细粒度权限编辑界面与多用户细分账号库（每个
-独立令牌即"用户"），这两项记录在 ROADMAP v0.4+，按需推进。
+设计取舍：令牌管理界面已交付（签发/吊销/角色绑定，令牌即"用户"）；
+端点级细粒度权限编辑界面仍记录在 ROADMAP，按需推进。
 
 ## 扩展点
 

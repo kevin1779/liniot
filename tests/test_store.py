@@ -129,3 +129,34 @@ def test_commands_queue_and_deliver(tmp_path):
     assert len(pending) == 1
     assert pending[0]["payload"] == {"property": "power", "value": True}
     assert store.pending_commands("light-1") == []  # 取走后不再返回
+
+
+def test_api_tokens_lifecycle(tmp_path):
+    """动态令牌：哈希落库、吊销即失效、last_used 节流刷新。"""
+    import time as _time
+
+    from liniot.store import hash_token
+
+    store = Store(tmp_path / "a.db")
+    token = store.create_token("老王", "viewer", hash_token("liniot_secret"))
+    assert token["name"] == "老王" and token["role"] == "viewer"
+    assert token["token_hash"] == hash_token("liniot_secret")
+    assert store.count_tokens() == 1
+
+    found = store.find_token(hash_token("liniot_secret"))
+    assert found is not None and found["id"] == token["id"]
+    assert store.find_token(hash_token("wrong-token")) is None
+
+    # 首次使用记录 last_used_at；60 秒内重复请求不再写库（节流）
+    first = store.list_tokens()[0]["last_used_at"]
+    _time.sleep(0.01)
+    store.find_token(hash_token("liniot_secret"))  # 节流窗口内不刷新
+    assert store.list_tokens()[0]["last_used_at"] == first
+
+    # 吊销后查找视为无效；重复吊销幂等；记录保留供审计
+    revoked = store.revoke_token(token["id"])
+    assert revoked["revoked_at"] is not None
+    assert store.find_token(hash_token("liniot_secret")) is None
+    assert store.revoke_token(token["id"])["revoked_at"] == revoked["revoked_at"]
+    assert len(store.list_tokens()) == 1  # 已吊销记录仍在列表中
+    assert store.revoke_token(999) is None

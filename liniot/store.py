@@ -1,11 +1,13 @@
-"""SQLite 存储层：设备、遥测、规则、告警、命令队列。
+"""SQLite 存储层：设备、遥测、规则、告警、命令队列、API 令牌。
 
 设计要点：
 - 单连接 + 线程锁（FastAPI 线程池与 MQTT 线程共享），WAL 模式提升并发读写；
-- 遥测表按 (device_id, metric, ts) 建索引，按设备做环形保留（retention）。
+- 遥测表按 (device_id, metric, ts) 建索引，按设备做环形保留（retention）；
+- API 令牌只存 SHA-256 哈希，明文仅在签发响应中出现一次。
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import threading
@@ -77,7 +79,22 @@ CREATE TABLE IF NOT EXISTS commands (
     created_at  REAL NOT NULL,
     delivered_at REAL
 );
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT NOT NULL,
+    token_hash   TEXT NOT NULL UNIQUE,
+    role         TEXT NOT NULL DEFAULT 'viewer',
+    created_at   REAL NOT NULL,
+    last_used_at REAL,
+    revoked_at   REAL
+);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
 """
+
+
+def hash_token(token: str) -> str:
+    """令牌明文 → SHA-256 十六进制哈希；库中只落哈希，不落明文。"""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def _row_to_device(row: sqlite3.Row) -> dict[str, Any]:
@@ -493,3 +510,61 @@ class Store:
                 self.conn.commit()
         return [{"id": r["id"], "payload": json.loads(r["payload"]),
                  "created_at": r["created_at"]} for r in rows]
+
+    # ------------------------------------------------------------------ API 令牌
+
+    def create_token(self, name: str, role: str, token_hash: str) -> dict[str, Any]:
+        with self.lock:
+            cur = self.conn.execute(
+                "INSERT INTO api_tokens(name,token_hash,role,created_at) VALUES(?,?,?,?)",
+                (name, token_hash, role, time.time()),
+            )
+            self.conn.commit()
+            return self.get_token(int(cur.lastrowid))  # type: ignore[return-value]
+
+    def get_token(self, token_id: int) -> Optional[dict[str, Any]]:
+        with self.lock:
+            row = self.conn.execute("SELECT * FROM api_tokens WHERE id=?", (token_id,)).fetchone()
+        return dict(row) if row else None
+
+    def list_tokens(self) -> list[dict[str, Any]]:
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT * FROM api_tokens ORDER BY revoked_at IS NOT NULL, id DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def revoke_token(self, token_id: int) -> Optional[dict[str, Any]]:
+        """吊销令牌（保留记录用于审计）；已吊销的重复吊销幂等返回原记录。"""
+        with self.lock:
+            row = self.conn.execute("SELECT * FROM api_tokens WHERE id=?", (token_id,)).fetchone()
+            if row is None:
+                return None
+            if row["revoked_at"] is None:
+                self.conn.execute(
+                    "UPDATE api_tokens SET revoked_at=? WHERE id=?", (time.time(), token_id))
+                self.conn.commit()
+        return self.get_token(token_id)
+
+    def find_token(self, token_hash: str, touch_after: float = 60.0) -> Optional[dict[str, Any]]:
+        """按哈希查找有效令牌（已吊销视为无效），并节流刷新 last_used_at。
+
+        touch_after 秒内已刷新过的令牌不再写库，避免高频请求反复落盘。
+        """
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT * FROM api_tokens WHERE token_hash=? AND revoked_at IS NULL",
+                (token_hash,),
+            ).fetchone()
+            if row is None:
+                return None
+            now = time.time()
+            if row["last_used_at"] is None or row["last_used_at"] < now - touch_after:
+                self.conn.execute(
+                    "UPDATE api_tokens SET last_used_at=? WHERE id=?", (now, row["id"]))
+                self.conn.commit()
+        return dict(row)
+
+    def count_tokens(self) -> int:
+        with self.lock:
+            return self.conn.execute("SELECT COUNT(*) FROM api_tokens").fetchone()[0]

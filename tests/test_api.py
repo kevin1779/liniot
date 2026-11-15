@@ -339,3 +339,67 @@ def test_validation_errors(client):
     assert client.post("/api/devices", json={"name": "", "type": "x"}).status_code == 422
     assert client.post("/api/devices", json={"id": "非法ID", "name": "x"}).status_code == 422
     assert client.get("/api/devices/ghost/telemetry").status_code == 404
+
+
+def test_dynamic_token_management(tmp_path):
+    """仪表盘动态令牌：匿名开放模式签发首个令牌即开启鉴权，吊销立即生效。"""
+    from fastapi.testclient import TestClient
+    from liniot.config import Config
+    from liniot.main import create_app
+    from liniot.store import hash_token
+
+    config = Config(db_path=tmp_path / "dynamic.db", web_dir=tmp_path / "no-web")
+    app = create_app(config)
+    with TestClient(app) as c:
+        # 默认开放模式：匿名即管理员，health 不标记鉴权
+        assert c.get("/api/health").json()["auth"] is False
+        assert c.get("/api/me").json() == {"name": "anonymous", "role": "admin"}
+
+        # 匿名管理员签发首个 admin 令牌：明文仅响应一次，不落哈希之外的任何敏感字段
+        r = c.post("/api/tokens", json={"name": "管理员", "role": "admin"})
+        assert r.status_code == 201
+        admin_body = r.json()
+        assert admin_body["token"].startswith("liniot_")
+        assert "token_hash" not in admin_body
+        h_admin = {"X-Auth-Token": admin_body["token"]}
+
+        # 签发即开启全站鉴权：无令牌请求一律 401（health 仍开放）
+        assert c.get("/api/health").json()["auth"] is True
+        assert c.get("/api/devices").status_code == 401
+        assert c.get("/api/me").status_code == 401
+
+        # 非法角色 422；admin 再签发 viewer 令牌
+        assert c.post("/api/tokens", json={"name": "x", "role": "root"},
+                      headers=h_admin).status_code == 422
+        view_body = c.post("/api/tokens", json={"name": "老王", "role": "viewer"},
+                           headers=h_admin).json()
+        h_view = {"X-Auth-Token": view_body["token"]}
+
+        # 列表不回显明文与哈希；库中确实只落哈希
+        tokens = c.get("/api/tokens", headers=h_admin).json()
+        assert [(t["name"], t["role"]) for t in tokens] == \
+            [("老王", "viewer"), ("管理员", "admin")]
+        assert all("token" not in t and "token_hash" not in t for t in tokens)
+        store = app.state.liniot["store"]
+        assert store.find_token(hash_token(admin_body["token"]))["role"] == "admin"
+
+        # viewer 令牌：可读、/api/me 报真实身份；管理令牌 403（与 401 语义分离）
+        assert c.get("/api/devices", headers=h_view).status_code == 200
+        assert c.get("/api/me", headers=h_view).json() == {"name": "老王", "role": "viewer"}
+        assert c.get("/api/tokens", headers=h_view).status_code == 403
+        assert c.post("/api/tokens", json={"name": "x", "role": "admin"},
+                      headers=h_view).status_code == 403
+
+        # 使用后记录 last_used_at，供列表展示"最近使用"
+        assert next(t for t in c.get("/api/tokens", headers=h_admin).json()
+                    if t["name"] == "老王")["last_used_at"] is not None
+
+        # 吊销立即生效；重复吊销幂等；不存在的令牌 404
+        assert c.delete(f"/api/tokens/{view_body['id']}", headers=h_admin).status_code == 200
+        assert c.get("/api/devices", headers=h_view).status_code == 401
+        assert c.delete(f"/api/tokens/{view_body['id']}", headers=h_admin).status_code == 200
+        assert c.delete("/api/tokens/999", headers=h_admin).status_code == 404
+
+        # WebSocket 携带动态令牌可订阅；错误令牌拒绝
+        with c.websocket_connect(f"/ws?token={admin_body['token']}") as ws:
+            assert ws.receive_json()["type"] == "hello"

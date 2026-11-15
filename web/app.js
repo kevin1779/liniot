@@ -5,6 +5,7 @@ const S = {
   devices: [], overview: {}, alerts: [],
   deviceGroupFilter: "", overviewGroupFilter: "",
   health: { mqtt: false, ai: false },
+  me: null, revealedToken: null,
   ws: null, wsOk: false,
   route: "overview", routeId: null,
   aiHistory: [],
@@ -50,6 +51,9 @@ async function api(path, options = {}) {
 
 function fmtTime(ts) {
   return new Date(ts * 1000).toLocaleTimeString("zh-CN", { hour12: false });
+}
+function fmtDateTime(ts) {
+  return new Date(ts * 1000).toLocaleString("zh-CN", { hour12: false });
 }
 function ago(ts) {
   const d = Math.max(0, Date.now() / 1000 - ts);
@@ -258,7 +262,8 @@ async function render(keepScroll) {
   const view = $("#view");
   const scroll = view.scrollHeight - view.scrollTop - view.clientHeight < 60;
   const builders = { overview: viewOverview, devices: viewDevices, device: viewDevice,
-                     rules: viewRules, scenes: viewScenes, ai: viewAI };
+                     rules: viewRules, scenes: viewScenes, ai: viewAI,
+                     tokens: viewTokens };
   (builders[S.route] || viewOverview)(view);
   if (keepScroll && scroll) view.scrollTop = view.scrollHeight;
 }
@@ -794,6 +799,127 @@ async function viewAI(view) {
   input.focus();
 }
 
+/* ------------------------------------------------------------------ 访问令牌 */
+const ROLE_LABEL = { admin: "管理员", device: "设备", viewer: "只读" };
+
+async function viewTokens(view) {
+  // 非 admin 直达路由时退回概览；但刚签发令牌的一次性展示卡必须保留可见
+  const isAdmin = !!(S.me && S.me.role === "admin");
+  if (!isAdmin && !S.revealedToken) { viewOverview(view); return; }
+  const tokens = isAdmin ? await api("/api/tokens") : [];
+  const rows = tokens.map((t) => `
+    <tr>
+      <td class="mono">#${t.id}</td>
+      <td>${esc(t.name)}</td>
+      <td><span class="pill role-${t.role}">${ROLE_LABEL[t.role] || esc(t.role)}</span></td>
+      <td class="muted">${fmtDateTime(t.created_at)}</td>
+      <td class="muted">${t.last_used_at ? ago(t.last_used_at) : "从未使用"}</td>
+      <td>${t.revoked_at
+        ? `<span class="muted">已吊销</span>`
+        : `<span class="pill online">有效</span>`}</td>
+      <td>${t.revoked_at ? "—"
+        : `<button class="link" data-revoke="${t.id}" style="color:var(--red)">吊销</button>`}</td>
+    </tr>`).join("");
+  const reveal = S.revealedToken ? `
+    <div class="card mb14 token-reveal">
+      <div class="chart-title">令牌已签发 · 请立即保存</div>
+      <div class="muted mb14">令牌明文仅此一次展示，平台只保存哈希；关闭后无法再次查看。</div>
+      <div class="token-plaintext mono">${esc(S.revealedToken.token)}</div>
+      <div style="margin-top:12px;display:flex;gap:14px;align-items:center">
+        <button class="primary" id="copy-token" type="button">复制令牌</button>
+        <button class="link" id="dismiss-token" type="button">我已保存，关闭</button>
+      </div>
+    </div>` : "";
+  const manageHtml = isAdmin ? `
+    <div class="card mb14">
+      <form id="token-form" class="form-grid">
+        <div class="form-item"><label>名称</label>
+          <input name="name" required maxlength="64" placeholder="如 产线A / 老王"></div>
+        <div class="form-item"><label>角色</label>
+          <select name="role">
+            <option value="viewer">viewer · 只读</option>
+            <option value="device">device · 上报</option>
+            <option value="admin">admin · 全部操作</option>
+          </select></div>
+        <button class="primary" type="submit">签发令牌</button>
+      </form>
+    </div>
+    <div class="card">
+      ${tokens.length ? `<table>
+        <thead><tr><th>ID</th><th>名称</th><th>角色</th><th>签发时间</th>
+        <th>最近使用</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>${rows}</tbody></table>`
+      : `<div class="empty">${S.me.name === "anonymous"
+        ? "还没有动态令牌。默认开放模式下建议先给自己签发一枚 admin 令牌并保存——签发首个令牌后，未携带令牌的请求将被立即拒绝"
+        : "环境变量配置的令牌（LINIOT_API_TOKENS）不受影响，继续可用"}</div>`}
+    </div>` : `
+    <div class="card">
+      <div class="empty">当前令牌角色为 ${ROLE_LABEL[S.me.role]}，无令牌管理权限。
+        <button class="link" id="goto-login" type="button">使用 admin 令牌重新登录</button></div>
+    </div>`;
+  view.innerHTML = `
+    <div class="page-title">访问令牌</div>
+    <div class="page-sub">为每人签发独立令牌并绑定角色（admin 全部操作 · device 上报 · viewer 只读）；
+      吊销立即生效，签发首个令牌后未携带令牌的请求将被拒绝</div>
+    ${reveal}
+    ${manageHtml}`;
+
+  const form = $("#token-form");
+  if (form) form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    const role = String(fd.get("role"));
+    // 匿名开放模式下签发非 admin 令牌：当前会话将随首个令牌降级，先明确告知
+    if (S.me.name === "anonymous" && role !== "admin" &&
+        !confirm("默认开放模式下签发非 admin 令牌将立即开启全站鉴权，当前会话会以该令牌身份继续、不再拥有管理员权限。确定签发？")) {
+      return;
+    }
+    try {
+      const data = await api("/api/tokens", { method: "POST",
+        body: { name: String(fd.get("name")).trim(), role } });
+      S.revealedToken = data;
+      // 匿名会话签发首个令牌后匿名访问即关闭：自动以新令牌登录并重建实时
+      // 连接，避免被自己签发的令牌锁在门外（admin 令牌可继续管理）
+      if (S.me.name === "anonymous") {
+        localStorage.setItem("authToken", data.token);
+        S.me = { name: data.name, role: data.role };
+        $("#nav-tokens").style.display = S.me.role === "admin" ? "" : "none";
+        if (S.ws) { S.ws.onclose = null; S.ws.close(); }
+        connectWS();
+      }
+      toast("令牌已签发，请立即保存");
+      render();
+    } catch (e) { toast(`签发失败：${e.message}`); }
+  });
+  const copy = $("#copy-token");
+  if (copy) copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(S.revealedToken.token);
+      toast("已复制到剪贴板");
+    } catch (e) { toast("复制失败，请手动选择复制"); }
+  });
+  const dismiss = $("#dismiss-token");
+  if (dismiss) dismiss.addEventListener("click", () => {
+    S.revealedToken = null;
+    // 非 admin 会话关闭展示卡后无令牌管理权限，引导重新登录
+    if (S.me && S.me.role === "admin") render(); else renderLogin();
+  });
+  const gotoLogin = $("#goto-login");
+  if (gotoLogin) gotoLogin.addEventListener("click", renderLogin);
+  view.querySelectorAll("[data-revoke]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      try {
+        await api(`/api/tokens/${btn.dataset.revoke}`, { method: "DELETE" });
+        // 吊销的正是展示中的新令牌时，一并收起展示卡，避免展示已失效明文
+        if (S.revealedToken && Number(btn.dataset.revoke) === S.revealedToken.id) {
+          S.revealedToken = null;
+        }
+        toast("令牌已吊销");
+        render();
+      } catch (e) { toast(`吊销失败：${e.message}`); }
+    }));
+}
+
 /* ------------------------------------------------------------------ 启动 */
 async function boot() {
   initTheme();
@@ -809,6 +935,12 @@ async function boot() {
   if (S.health.auth && !localStorage.getItem("authToken")) {
     renderLogin();
     return;
+  }
+  try {
+    S.me = await api("/api/me");
+    $("#nav-tokens").style.display = S.me.role === "admin" ? "" : "none";
+  } catch (e) {
+    if (String(e.message).includes("令牌")) return;  // 401：api() 已渲染登录页
   }
   parseHash();
   connectWS();

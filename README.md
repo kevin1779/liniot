@@ -39,7 +39,7 @@ liniot run                     # http://127.0.0.1:8000
 liniot simulate                # 2 台温湿度传感器 + 2 台智能灯
 ```
 
-> **安全提示**：平台支持访问令牌鉴权——设置 `LINIOT_AUTH_TOKEN`（共享管理员）或 `LINIOT_API_TOKENS`（多用户角色）后，所有 API 与 WebSocket 需携带令牌（仪表盘会弹出验证框）。**生产 / 公网环境务必设置**，或改用防火墙 / 反向代理限制来源；仅本机体验可不设置。MQTT 通道建议直接使用 Broker 自带的用户名密码。
+> **安全提示**：平台支持访问令牌鉴权——设置 `LINIOT_AUTH_TOKEN`（共享管理员）、`LINIOT_API_TOKENS`（多用户角色），或直接在仪表盘「访问令牌」页为每人签发独立令牌（哈希落库、可随时吊销）后，所有 API 与 WebSocket 需携带令牌（仪表盘会弹出验证框）。**生产 / 公网环境务必启用**，或改用防火墙 / 反向代理限制来源；仅本机体验可不设置。MQTT 通道建议直接使用 Broker 自带的用户名密码。
 
 打开 http://127.0.0.1:8000 —— 概览页实时曲线、设备控制、规则告警、AI 对话全部可用。
 
@@ -90,6 +90,7 @@ bash examples/curl-demo.sh   # 纯 API 演示：注册→上报→规则→告�
 | `LINIOT_RETENTION` | `20000` | 每设备遥测保留条数 |
 | `LINIOT_ONLINE_TIMEOUT` | `90` | 超过该秒数无上报视为离线 |
 | `LINIOT_AUTH_TOKEN` | 空 | 访问令牌；设置后所有 API 与 WebSocket 需携带（仪表盘弹验证框） |
+| `LINIOT_API_TOKENS` | 空 | 多用户令牌 `名称:令牌:角色`，分号分隔；角色 ∈ admin/device/viewer。也可不改环境变量，直接在仪表盘「访问令牌」页动态签发/吊销（默认开放模式下签发首个令牌即开启鉴权） |
 | `LINIOT_WEBHOOK_URL` | 空 | 告警回调地址（POST JSON） |
 | `LINIOT_ALERT_WEBHOOKS` | 空 | 群机器人推送，分号分隔多个；按 URL 自动识别钉钉/飞书/企业微信，其他地址原样透传 JSON |
 | `LINIOT_MQTT_HOST` | 空 | Broker 地址，空 = 禁用 MQTT |
@@ -195,7 +196,7 @@ Optional MQTT:
 export LINIOT_MQTT_HOST=broker.emqx.io
 ```
 
-> **Security note**: set `LINIOT_AUTH_TOKEN` to require an access token on every API call and the WebSocket (the dashboard shows a login box). Without it the platform is open by design — keep it inside a trusted LAN or restrict access via firewall / reverse proxy for production.
+> **Security note**: set `LINIOT_AUTH_TOKEN` (shared admin token) or `LINIOT_API_TOKENS` (per-user tokens with roles), or issue and revoke per-user tokens directly from the dashboard "Access Tokens" page (stored as SHA-256 hashes). Once enabled, every API call and the WebSocket require a token (the dashboard shows a login box). Without any token the platform is open by design — keep it inside a trusted LAN or restrict access via firewall / reverse proxy for production.
 
 See the Chinese section above for full configuration, API docs, MQTT protocol, and hardware guides — code comments and API responses are largely language-neutral, and doc files are being translated progressively.
 

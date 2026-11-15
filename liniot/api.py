@@ -7,6 +7,7 @@ import io
 import json
 import logging
 import re
+import secrets
 import time
 from collections.abc import Iterator
 from typing import Any
@@ -18,12 +19,15 @@ from fastapi.responses import StreamingResponse
 from . import ai
 from .config import Config
 from .schemas import (ChatIn, DeviceIn, PropertiesIn, RuleIn, RulePatch,
-                      SceneIn, ScenePatch, StatusIn, TelemetryIn)
+                      SceneIn, ScenePatch, StatusIn, TelemetryIn, TokenIn)
 from .service import METRIC_RE, DeviceService, UnknownDevice
+from .store import hash_token
 
 logger = logging.getLogger("liniot.api")
 
 WINDOW_MAP = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
+
+TOKEN_PREFIX = "liniot_"  # 动态签发令牌的前缀，便于识别与扫描器排除
 
 
 def build_router(store, bus, rules, devices: DeviceService, config: Config):
@@ -31,18 +35,27 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config):
         r"^/api/devices(?:$|/[^/]+/(?:telemetry|status|commands)$)")
 
     def resolve_principal(request: Request) -> dict[str, str] | None:
-        """解析访问主体；未配置任何令牌时全员匿名管理员（开箱即用）。"""
-        if not config.auth_token and not config.api_tokens:
+        """解析访问主体；未配置任何令牌（环境变量与数据库均无）时全员匿名管理员。
+
+        令牌来源优先级：共享令牌 → 环境变量多用户令牌 → 数据库动态令牌
+        （哈希查找，签发与吊销经仪表盘实时生效）。
+        """
+        if not config.auth_token and not config.api_tokens and not store.count_tokens():
             return {"name": "anonymous", "role": "admin"}
         supplied = request.headers.get("x-auth-token") or ""
         if not supplied:
             auth = request.headers.get("authorization") or ""
             supplied = auth[7:] if auth.lower().startswith("bearer ") else ""
+        if not supplied:
+            return None
         if config.auth_token and supplied == config.auth_token:
             return {"name": "shared", "role": "admin"}
         for entry in config.api_tokens:
             if entry["token"] == supplied:
                 return {"name": entry["name"], "role": entry["role"]}
+        row = store.find_token(hash_token(supplied))
+        if row is not None:
+            return {"name": row["name"], "role": row["role"]}
         return None
 
     def require_token(request: Request) -> None:
@@ -67,6 +80,12 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config):
             return
         raise HTTPException(403, f"角色 {role} 无权执行该操作")
 
+    def require_admin(request: Request) -> None:
+        """令牌管理专属守卫：任何有效主体先通过鉴权，再要求 admin 角色。"""
+        require_token(request)
+        if request.state.principal["role"] != "admin":
+            raise HTTPException(403, "仅 admin 角色可管理访问令牌")
+
     def device_or_404(device_id: str) -> dict[str, Any]:
         device = store.get_device(device_id)
         if device is None:
@@ -76,13 +95,17 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config):
     # ------------------------------------------------------------------ 基础
 
     def health() -> dict[str, Any]:
+        # auth 覆盖三种令牌来源：共享令牌、环境变量多用户令牌、数据库动态令牌
         return {"status": "ok", "mqtt": config.mqtt.enabled, "ai": config.ai.enabled,
-                "modbus": config.modbus.enabled, "auth": bool(config.auth_token)}
+                "modbus": config.modbus.enabled,
+                "auth": bool(config.auth_token or config.api_tokens or store.count_tokens())}
 
     # 健康检查保持开放（探活用）；其余 /api/* 在配置令牌后需要鉴权
     open_router = APIRouter(prefix="/api")
     open_router.add_api_route("/health", health, methods=["GET"])
     router = APIRouter(prefix="/api", dependencies=[Depends(require_token)])
+    token_router = APIRouter(prefix="/api/tokens",
+                             dependencies=[Depends(require_admin)])
 
     @router.get("/overview")
     def overview() -> dict[str, Any]:
@@ -292,17 +315,49 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config):
     async def ai_chat(body: ChatIn) -> dict[str, Any]:
         return await ai.chat(store, devices, config.ai, body.message, body.history)
 
-    return [open_router, router]
+    # ------------------------------------------------------------------ 访问主体
+
+    @router.get("/me")
+    def whoami(request: Request) -> dict[str, str]:
+        """当前访问主体（名称与角色），供前端做角色感知的界面。"""
+        return request.state.principal
+
+    # ------------------------------------------------- 令牌管理（仅 admin）
+
+    @token_router.get("")
+    def list_tokens() -> list[dict[str, Any]]:
+        # 不返回 token_hash：哈希亦不应外泄，避免离线撞库
+        return [{"id": t["id"], "name": t["name"], "role": t["role"],
+                 "created_at": t["created_at"], "last_used_at": t["last_used_at"],
+                 "revoked_at": t["revoked_at"]} for t in store.list_tokens()]
+
+    @token_router.post("", status_code=201)
+    def create_token(body: TokenIn, response: Response) -> dict[str, Any]:
+        plaintext = TOKEN_PREFIX + secrets.token_hex(20)
+        token = store.create_token(body.name, body.role, hash_token(plaintext))
+        response.status_code = 201
+        return {"id": token["id"], "name": token["name"], "role": token["role"],
+                "created_at": token["created_at"], "token": plaintext}
+
+    @token_router.delete("/{token_id}")
+    def revoke_token(token_id: int) -> dict[str, Any]:
+        token = store.revoke_token(token_id)
+        if token is None:
+            raise HTTPException(404, f"令牌不存在: {token_id}")
+        return {"id": token["id"], "revoked_at": token["revoked_at"]}
+
+    return [open_router, router, token_router]
 
 
 def register_websocket(app, store, bus, devices: DeviceService, config) -> None:
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
         # 配置令牌后，WebSocket 用 ?token= 携带（浏览器 WS 无法自定义请求头）；
-        # admin/device/viewer 任一有效主体均可订阅实时事件
+        # admin/device/viewer 任一有效主体（环境变量或数据库动态令牌）均可订阅
         supplied = websocket.query_params.get("token") or ""
         valid = (config.auth_token and supplied == config.auth_token) or \
-            any(e["token"] == supplied for e in config.api_tokens)
+            any(e["token"] == supplied for e in config.api_tokens) or \
+            store.find_token(hash_token(supplied)) is not None
         if (config.auth_token or config.api_tokens) and not valid:
             await websocket.close(code=4401)
             return
