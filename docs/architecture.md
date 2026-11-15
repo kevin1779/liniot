@@ -83,6 +83,26 @@ AI 只能调用 `set_property` 一个动作，且属性名必须已存在于设�
 值必须是标量；LLM 输出按 JSON 解析，非法动作被逐条拒绝并保留在响应的 `results`
 里可审计。所有下发命令写入 `commands` 表，设备确认后属性才变更。
 
+## 访问控制与多用户
+
+访问控制位于 `build_router` 的 `require_token` 依赖中，作用于除
+`GET /api/health`（探活）外的全部 `/api/*` 路由，语义分两层：
+
+- **401**：令牌缺失或错误。主体由 `resolve_principal` 解析——依次匹配
+  共享令牌（`LINIOT_AUTH_TOKEN`，视为 admin）与多用户令牌
+  （`LINIOT_API_TOKENS`，名称:令牌:角色，由 `config.parse_api_tokens`
+  解析，非法条目跳过）；
+- **403**：令牌有效但角色无权。角色矩阵：admin 全部；device 读取 +
+  上报遥测/状态 + 拉取命令 + 设备自注册（`DEVICE_WRITE_RE` 限定写路径）；
+  viewer 只读。
+
+未配置任何令牌时 `resolve_principal` 返回匿名 admin——开箱即用行为与
+历史版本完全一致。WebSocket 通过 `?token=` 查询参数做同一校验
+（浏览器 WS 无法自定义请求头），拒绝码 4401。
+
+设计取舍：不做端点级细粒度权限编辑界面与多用户细分账号库（每个
+独立令牌即"用户"），这两项记录在 ROADMAP v0.4+，按需推进。
+
 ## 扩展点
 
 - **新协议接入**：实现一个把报文转成 `DeviceService` 调用的服务类即可（参考
