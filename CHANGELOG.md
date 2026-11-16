@@ -2,6 +2,11 @@
 
 ## 未发布
 
+- PostgreSQL 存储后端：`LINIOT_DB_URL` 指向 PG DSN 即切换（可选依赖
+  `pip install ".[postgres]"`，psycopg 3），与 SQLite 后端七域同接口、
+  行为由对齐测试保证（CI 带 postgres service 容器跑全矩阵）；docker-compose
+  新增可选 `--profile postgres` 的 PG 服务；未配置 DSN 时 SQLite 仍为默认、
+  行为完全不变
 - 设备影子与离线命令：`desired`/`reported` 状态分离（`shadows` 表，每次变更
   版本 +1），控制端下发同时写期望状态，设备离线时控制意图持久保留；
   `GET /api/devices/{id}/shadow` 返回 delta 供设备重连后单请求同步；

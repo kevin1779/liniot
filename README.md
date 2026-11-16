@@ -18,7 +18,7 @@
 ## 特性
 
 - **设备接入**：MQTT（任意标准 Broker）、HTTP、Modbus TCP（工业设备，可选依赖）三通道，语义一致
-- **时序存储**：SQLite 单文件存储，WAL 并发，按设备环形保留，自动清理
+- **时序存储**：SQLite 单文件存储，WAL 并发，按设备环形保留，自动清理；可切换 PostgreSQL 后端（`LINIOT_DB_URL`，同接口可插拔）
 - **规则引擎**：阈值规则（6 种比较符），上升沿触发一次告警，按「规则 × 设备」独立判定，支持全局规则与 Webhook 通知
 - **统计异常检测**：EWMA 基线 + 3σ 判定，无需配置规则即可发现指标突变
 - **场景联动**：「温度 > 28 则开灯」式自动化，冷却窗口防止命令震荡
@@ -89,6 +89,7 @@ bash examples/curl-demo.sh   # 纯 API 演示：注册→上报→规则→告�
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `LINIOT_DB_PATH` | `data/liniot.db` | SQLite 文件路径 |
+| `LINIOT_DB_URL` | 空 | PostgreSQL DSN（如 `postgresql://liniot:liniot@127.0.0.1:5432/liniot`）；设置后改用 PG 后端（需 `pip install ".[postgres]"`），未设置仍用 SQLite |
 | `LINIOT_RETENTION` | `20000` | 每设备遥测保留条数 |
 | `LINIOT_ONLINE_TIMEOUT` | `90` | 超过该秒数无上报视为离线 |
 | `LINIOT_AUTH_TOKEN` | 空 | 访问令牌；设置后所有 API 与 WebSocket 需携带（仪表盘弹验证框） |

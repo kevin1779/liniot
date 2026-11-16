@@ -17,10 +17,26 @@ services:
       # LINIOT_AI_BASE_URL: https://api.openai.com/v1
       # LINIOT_AI_MODEL: gpt-4o-mini
       # LINIOT_WEBHOOK_URL: http://host.docker.internal:9000/alert  # 可选：告警回调
+      # LINIOT_DB_URL: postgresql://liniot:liniot@postgres:5432/liniot  # 可选：PG 后端（配合 --profile postgres）
     volumes:
       - liniot-data:/data
     depends_on:
       - mosquitto
 
+  # 可选：PostgreSQL 存储后端。docker compose --profile postgres up -d postgres
+  # 后在 liniot 环境里取消 LINIOT_DB_URL 注释并重启（需镜像内含 psycopg，见 README）
+  postgres:
+    image: postgres:16
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: liniot
+      POSTGRES_PASSWORD: liniot
+      POSTGRES_DB: liniot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
 volumes:
   liniot-data:
+  pgdata:

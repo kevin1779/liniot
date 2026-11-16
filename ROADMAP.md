@@ -48,8 +48,8 @@
       静态配置的局限。
 - [x] **设备影子与离线命令**：desired/reported 状态分离，设备离线时命令缓存、
       上线后自动补发（由维护者交付，v0.5 第二项）。
-- *help wanted* **PostgreSQL 存储后端**：基于现有 `Store` 接口契约的
-      可插拔实现，可选依赖、未安装不影响平台。
+- [x] **PostgreSQL 存储后端**：`liniot/pg_store.py` 与 SQLite 同接口七域实现，
+      `LINIOT_DB_URL` 启用（psycopg 3 可选依赖），CI 带 PG 容器跑对齐测试。
 
 ## 远期想法
 

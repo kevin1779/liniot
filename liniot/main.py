@@ -57,7 +57,13 @@ async def diagnosis_worker(store, devices, config: Config, bus: EventBus) -> Non
 
 def create_app(config: Config | None = None) -> FastAPI:
     config = config or load_config()
-    store = Store(config.db_path)
+    if config.db_url:
+        # PostgreSQL 后端：延迟导入，未安装 psycopg 时仅在选用 PG 时才报错
+        from .pg_store import PostgresStore
+
+        store = PostgresStore(config.db_url)
+    else:
+        store = Store(config.db_path)
     bus = EventBus()
     rules = RuleEngine(store, bus, config.webhook_url,
                        alert_webhooks=config.alert_webhooks)

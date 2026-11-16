@@ -133,4 +133,7 @@ delta 自然清空。
   `MQTTService.handle_telemetry_payload`）。
 - **新规则类型**：在 `rules.py` 增加判定函数与持久化字段；引擎与 API 结构已分离。
 - **替换存储**：`Store` 的接口即契约（devices/telemetry/rules/alerts/commands/
-  shadows/api_tokens 七域），可换 PostgreSQL/TimescaleDB 实现同接口。
+  shadows/api_tokens 七域）。PostgreSQL 实现已随 `liniot/pg_store.py` 提供：
+  设置 `LINIOT_DB_URL` 即启用（需 `pip install ".[postgres]"`，psycopg 3，
+  可选依赖），行为一致性由带 postgres service 容器的 CI 对齐测试保证；
+  SQLite 仍为默认。

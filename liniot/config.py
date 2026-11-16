@@ -88,6 +88,7 @@ class ModbusConfig:
 @dataclass
 class Config:
     db_path: Path = Path("data/liniot.db")
+    db_url: str = ""                     # PostgreSQL DSN；设置后用 PG 后端（需 pip install ".[postgres]"）
     retention_points: int = 20000        # 每设备保留的遥测点数上限
     online_timeout: float = 90.0         # 超过该秒数未见心跳视为离线
     auth_token: str = ""                 # 共享管理员令牌（向后兼容）
@@ -108,6 +109,7 @@ def load_config() -> Config:
     web_default = str(repo_web) if repo_web.is_dir() else "web"
     cfg = Config(
         db_path=Path(env.get("LINIOT_DB_PATH", "data/liniot.db")),
+        db_url=env.get("LINIOT_DB_URL", ""),
         retention_points=int(env.get("LINIOT_RETENTION", "20000")),
         online_timeout=float(env.get("LINIOT_ONLINE_TIMEOUT", "90")),
         auth_token=env.get("LINIOT_AUTH_TOKEN", ""),
