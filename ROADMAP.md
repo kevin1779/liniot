@@ -51,6 +51,20 @@
 - [x] **PostgreSQL 存储后端**：`liniot/pg_store.py` 与 SQLite 同接口七域实现，
       `LINIOT_DB_URL` 启用（psycopg 3 可选依赖），CI 带 PG 容器跑对齐测试。
 
+## v0.6（规划中）
+
+主题：可观测性与权限完善——把 LinIoT 接进主流监控/权限工具链（预计 12 月上旬发布）。
+
+- [ ] *good first issue* **令牌角色可视化编辑**：令牌列表直接修改角色
+      （`PATCH /api/tokens/{id}`），页面内展示 admin/device/viewer 权限矩阵
+      说明，补完 v0.4 留下的「端点级权限管理界面」口子。
+- [ ] **Prometheus 指标端点**：`GET /metrics` 输出设备总数/在线数/遥测
+      写入速率/24h 告警计数等文本格式指标，配合 Grafana 即刻接入主流
+      监控栈（无需单独的数据源插件）。
+- [ ] **TimescaleDB 支持**：PG 后端启动时自动探测 timescaledb 扩展并
+      将 telemetry 转为 hypertable（原生压缩与降采样），扩展缺失时静默
+      退回普通表；compose 提供 `--profile timescale` 变体与文档。
+
 ## 远期想法
 
 - TimescaleDB / PostgreSQL 存储后端（`Store` 接口契约已隔离，可插拔实现）
