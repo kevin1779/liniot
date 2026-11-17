@@ -77,9 +77,20 @@ bash examples/curl-demo.sh   # 纯 API 演示：注册→上报→规则→告�
 |---|---|---|
 | ![](docs/images/dashboard.png) | ![](docs/images/devices.png) | ![](docs/images/ai-assistant.png) |
 
-- **概览**：设备在线数、数据点、告警统计 + 每设备每指标实时曲线（WebSocket 推送）
-- **设备管理**：注册 / 删除设备，进入详情后可切换布尔属性（如灯开关）、下发烧写数值属性；设备影子卡展示期望值 vs 上报值的同步状态
-- **规则与告警**：可视化配置阈值规则，告警历史实时滚动
+| 设备影子 | 规则与告警 | 访问令牌 |
+|---|---|---|
+| ![](docs/images/device-shadow.png) | ![](docs/images/rules-alerts.png) | ![](docs/images/tokens.png) |
+
+支持深浅色主题一键切换（侧边栏底部按钮，全站跟随、Canvas 图表主题化）：
+
+<p align="center">
+  <img src="docs/images/dashboard-dark.png" alt="LinIoT 深色模式" width="820">
+</p>
+
+- **概览**：设备在线数、数据点、告警统计 + 每设备每指标实时曲线（WebSocket 推送），支持按分组过滤
+- **设备管理**：注册 / 删除设备（可带分组），进入详情后可切换布尔属性（如灯开关）、下发烧写数值属性；设备影子卡展示期望值 vs 上报值的同步状态
+- **规则与告警**：可视化配置阈值规则，告警历史实时滚动，AI 自动生成诊断
+- **访问令牌**：admin 签发/吊销独立令牌并绑定角色，签发时明文一次性展示
 - **AI 助手**：「温度是多少？」「打开所有的灯」直接可用
 
 ## 配置
