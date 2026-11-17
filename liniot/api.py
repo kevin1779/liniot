@@ -16,10 +16,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, \
     WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
+from . import __version__
 from . import ai
 from .config import Config
 from .schemas import (ChatIn, DeviceIn, PropertiesIn, RuleIn, RulePatch,
-                      SceneIn, ScenePatch, StatusIn, TelemetryIn, TokenIn)
+                      SceneIn, ScenePatch, StatusIn, TelemetryIn, TokenIn,
+                      TokenPatch)
 from .service import METRIC_RE, DeviceService, UnknownDevice
 from .store import hash_token
 
@@ -106,6 +108,9 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config):
     router = APIRouter(prefix="/api", dependencies=[Depends(require_token)])
     token_router = APIRouter(prefix="/api/tokens",
                              dependencies=[Depends(require_admin)])
+    # /metrics 与 /api 同级（Prometheus 抓取惯例路径），保持开放：
+    # 只暴露聚合运营数据、不含设备明细；公网部署建议由反代限制来源
+    metrics_router = APIRouter()
 
     @router.get("/overview")
     def overview() -> dict[str, Any]:
@@ -347,12 +352,75 @@ def build_router(store, bus, rules, devices: DeviceService, config: Config):
 
     @token_router.delete("/{token_id}")
     def revoke_token(token_id: int) -> dict[str, Any]:
-        token = store.revoke_token(token_id)
+        token = store.get_token(token_id)
         if token is None:
             raise HTTPException(404, f"令牌不存在: {token_id}")
-        return {"id": token["id"], "revoked_at": token["revoked_at"]}
+        if last_admin_would_vanish(token, None):
+            raise HTTPException(409, LAST_ADMIN_MSG)
+        revoked = store.revoke_token(token_id)
+        return {"id": token_id, "revoked_at": revoked["revoked_at"]}
 
-    return [open_router, router, token_router]
+    @token_router.patch("/{token_id}")
+    def update_token(token_id: int, body: TokenPatch) -> dict[str, Any]:
+        """修改令牌角色；最后一个可用管理员不可降级（防自锁守卫）。"""
+        token = store.get_token(token_id)
+        if token is None:
+            raise HTTPException(404, f"令牌不存在: {token_id}")
+        if last_admin_would_vanish(token, body.role):
+            raise HTTPException(409, LAST_ADMIN_MSG)
+        updated = store.update_token(token_id, body.role)
+        return {"id": updated["id"], "name": updated["name"], "role": updated["role"],
+                "created_at": updated["created_at"],
+                "last_used_at": updated["last_used_at"],
+                "revoked_at": updated["revoked_at"]}
+
+    def last_admin_would_vanish(token: dict[str, Any], new_role: str | None) -> bool:
+        """降级/吊销该令牌后是否再无可用管理员主体。
+
+        管理员主体来源：LINIOT_AUTH_TOKEN、环境变量 admin 令牌、数据库中
+        未吊销的 admin 令牌（不含本次变动的目标令牌）。注意匿名开放模式
+        在存在任何动态令牌后即关闭，故首个 admin 令牌同样受守卫保护。
+        """
+        if token["role"] != "admin" or new_role == "admin":
+            return False
+        env_admins = (1 if config.auth_token else 0) + \
+            sum(1 for e in config.api_tokens if e["role"] == "admin")
+        return env_admins + store.count_active_admin_tokens(exclude_id=token["id"]) == 0
+
+    LAST_ADMIN_MSG = ("平台至少需要保留一个可用管理员身份："
+                      "先签发另一枚 admin 令牌，或配置 LINIOT_AUTH_TOKEN 兜底")
+
+    @metrics_router.get("/metrics")
+    def prometheus_metrics() -> Response:
+        """Prometheus 文本格式指标（gauge）：设备/遥测/规则/告警的聚合计数。"""
+        overview = devices.overview()
+        lines = [
+            "# HELP liniot_build_info LinIoT build information.",
+            "# TYPE liniot_build_info gauge",
+            f'liniot_build_info{{version="{__version__}"}} 1',
+            "# HELP liniot_devices_total Currently registered devices.",
+            "# TYPE liniot_devices_total gauge",
+            f"liniot_devices_total {overview['devices']}",
+            "# HELP liniot_devices_online Devices currently online.",
+            "# TYPE liniot_devices_online gauge",
+            f"liniot_devices_online {overview['online']}",
+            "# HELP liniot_telemetry_points Telemetry rows currently retained.",
+            "# TYPE liniot_telemetry_points gauge",
+            f"liniot_telemetry_points {store.count_telemetry()}",
+            "# HELP liniot_rules_total Configured threshold rules.",
+            "# TYPE liniot_rules_total gauge",
+            f"liniot_rules_total {overview['rules']}",
+            "# HELP liniot_alerts_open Alerts not yet acknowledged.",
+            "# TYPE liniot_alerts_open gauge",
+            f"liniot_alerts_open {store.count_open_alerts()}",
+            "# HELP liniot_alerts_triggered_24h Alerts triggered in the last 24 hours.",
+            "# TYPE liniot_alerts_triggered_24h gauge",
+            f"liniot_alerts_triggered_24h {overview['alerts_24h']}",
+        ]
+        return Response("\n".join(lines) + "\n",
+                        media_type="text/plain; version=0.0.4; charset=utf-8")
+
+    return [open_router, router, token_router, metrics_router]
 
 
 def register_websocket(app, store, bus, devices: DeviceService, config) -> None:

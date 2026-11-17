@@ -84,3 +84,7 @@ class TokenIn(BaseModel):
 
     name: str = Field(min_length=1, max_length=64)
     role: Literal["admin", "device", "viewer"]
+
+
+class TokenPatch(BaseModel):
+    role: Literal["admin", "device", "viewer"]

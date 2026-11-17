@@ -840,7 +840,12 @@ async function viewTokens(view) {
     <tr>
       <td class="mono">#${t.id}</td>
       <td>${esc(t.name)}</td>
-      <td><span class="pill role-${t.role}">${ROLE_LABEL[t.role] || esc(t.role)}</span></td>
+      <td>${t.revoked_at
+        ? `<span class="pill role-${t.role}">${ROLE_LABEL[t.role] || esc(t.role)}</span>`
+        : `<select class="role-select" data-role-for="${t.id}" data-current="${t.role}">
+            ${["admin", "device", "viewer"].map((r) =>
+              `<option value="${r}"${r === t.role ? " selected" : ""}>${ROLE_LABEL[r]} · ${r}</option>`).join("")}
+          </select>`}</td>
       <td class="muted">${fmtDateTime(t.created_at)}</td>
       <td class="muted">${t.last_used_at ? ago(t.last_used_at) : "从未使用"}</td>
       <td>${t.revoked_at
@@ -872,6 +877,20 @@ async function viewTokens(view) {
           </select></div>
         <button class="primary" type="submit">签发令牌</button>
       </form>
+    </div>
+    <div class="card mb14">
+      <div class="chart-title mb14">角色权限矩阵</div>
+      <table>
+        <thead><tr><th>角色</th><th>权限</th></tr></thead>
+        <tbody>
+          <tr><td><span class="pill role-admin">管理员</span></td>
+            <td>全部操作：令牌管理、设备增删、规则/场景配置、AI 助手</td></tr>
+          <tr><td><span class="pill role-device">设备</span></td>
+            <td>读取 + 上报遥测/状态 + 拉取命令 + 设备自注册（供设备侧使用）</td></tr>
+          <tr><td><span class="pill role-viewer">只读</span></td>
+            <td>只读访问所有数据与告警</td></tr>
+        </tbody>
+      </table>
     </div>
     <div class="card">
       ${tokens.length ? `<table>
@@ -935,6 +954,25 @@ async function viewTokens(view) {
   });
   const gotoLogin = $("#goto-login");
   if (gotoLogin) gotoLogin.addEventListener("click", renderLogin);
+  // 角色下拉：改动即 PATCH 保存；降级管理员先确认，失败回滚选中值
+  view.querySelectorAll("[data-role-for]").forEach((sel) =>
+    sel.addEventListener("change", async () => {
+      const id = sel.dataset.roleFor, role = sel.value, previous = sel.dataset.current;
+      if (role === previous) return;
+      if (previous === "admin" && role !== "admin" &&
+          !confirm("将该令牌从管理员降级？若它是平台唯一的管理员身份，服务端会拒绝此操作。")) {
+        sel.value = previous;
+        return;
+      }
+      try {
+        await api(`/api/tokens/${id}`, { method: "PATCH", body: { role } });
+        toast("角色已更新");
+        render();
+      } catch (e) {
+        toast(`修改失败：${e.message}`);
+        sel.value = previous;
+      }
+    }));
   view.querySelectorAll("[data-revoke]").forEach((btn) =>
     btn.addEventListener("click", async () => {
       try {

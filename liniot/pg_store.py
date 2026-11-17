@@ -407,6 +407,10 @@ class PostgresStore:
         row = self._one("SELECT COUNT(*) AS n FROM alerts WHERE ts>=%s", (since,))
         return row["n"] if row else 0
 
+    def count_open_alerts(self) -> int:
+        row = self._one("SELECT COUNT(*) AS n FROM alerts WHERE acknowledged=0")
+        return row["n"] if row else 0
+
     # ------------------------------------------------------------------ 场景
 
     def create_scene(self, name: str, source_device_id: Optional[str], metric: str,
@@ -626,6 +630,26 @@ class PostgresStore:
                     "UPDATE api_tokens SET last_used_at=%s WHERE id=%s", (now, row["id"]))
                 self.conn.commit()
         return dict(row)
+
+    def update_token(self, token_id: int, role: str) -> Optional[dict[str, Any]]:
+        """修改令牌角色；不存在返回 None。"""
+        with self.lock:
+            row = self._one("SELECT id FROM api_tokens WHERE id=%s", (token_id,))
+            if row is None:
+                return None
+            self.conn.execute("UPDATE api_tokens SET role=%s WHERE id=%s", (role, token_id))
+        return self.get_token(token_id)
+
+    def count_active_admin_tokens(self, exclude_id: Optional[int] = None) -> int:
+        """未吊销的 admin 令牌数（排除 exclude_id），供防自锁守卫使用。"""
+        sql = ("SELECT COUNT(*) AS n FROM api_tokens"
+               " WHERE role='admin' AND revoked_at IS NULL")
+        params: list[Any] = []
+        if exclude_id is not None:
+            sql += " AND id != %s"
+            params.append(exclude_id)
+        row = self._one(sql, params)
+        return row["n"] if row else 0
 
     def count_tokens(self) -> int:
         row = self._one("SELECT COUNT(*) AS n FROM api_tokens")

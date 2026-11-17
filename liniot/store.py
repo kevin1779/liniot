@@ -494,6 +494,12 @@ class Store:
                 "SELECT COUNT(*) FROM alerts WHERE ts>=?", (since,)
             ).fetchone()[0]
 
+    def count_open_alerts(self) -> int:
+        with self.lock:
+            return self.conn.execute(
+                "SELECT COUNT(*) FROM alerts WHERE acknowledged=0"
+            ).fetchone()[0]
+
     # ------------------------------------------------------------------ 命令
 
     def queue_command(self, device_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -676,6 +682,26 @@ class Store:
                     "UPDATE api_tokens SET last_used_at=? WHERE id=?", (now, row["id"]))
                 self.conn.commit()
         return dict(row)
+
+    def update_token(self, token_id: int, role: str) -> Optional[dict[str, Any]]:
+        """修改令牌角色；不存在返回 None。"""
+        with self.lock:
+            row = self.conn.execute("SELECT id FROM api_tokens WHERE id=?", (token_id,)).fetchone()
+            if row is None:
+                return None
+            self.conn.execute("UPDATE api_tokens SET role=? WHERE id=?", (role, token_id))
+            self.conn.commit()
+        return self.get_token(token_id)
+
+    def count_active_admin_tokens(self, exclude_id: Optional[int] = None) -> int:
+        """未吊销的 admin 令牌数（排除 exclude_id），供防自锁守卫使用。"""
+        sql = "SELECT COUNT(*) FROM api_tokens WHERE role='admin' AND revoked_at IS NULL"
+        params: list[Any] = []
+        if exclude_id is not None:
+            sql += " AND id != ?"
+            params.append(exclude_id)
+        with self.lock:
+            return self.conn.execute(sql, params).fetchone()[0]
 
     def count_tokens(self) -> int:
         with self.lock:

@@ -43,9 +43,36 @@ Authorization: Bearer <令牌>
   最近使用时间与 `revoked_at` 吊销时间；
 - `POST /api/tokens` — 签发：`{"name": "老王", "role": "viewer"}`，响应中的
   `token` 字段是唯一一次明文展示机会；
+- `PATCH /api/tokens/{id}` — 修改角色：`{"role": "device"}`；**防自锁守卫**：
+  若目标令牌是平台最后一个可用管理员身份（且无 `LINIOT_AUTH_TOKEN` 等
+  环境令牌兜底），降级与吊销均返回 409；
 - `DELETE /api/tokens/{id}` — 吊销（保留记录供审计），立即生效；
 - `GET /api/me` — 当前访问主体（`{"name": "老王", "role": "viewer"}`），
   供前端做角色感知界面。
+
+### `GET /metrics`（Prometheus）
+
+文本格式聚合指标（与 `/api/health` 同策略保持开放，公网部署建议由反代
+限制来源）：
+
+```
+liniot_build_info{version="0.5.0"} 1
+liniot_devices_total 4
+liniot_devices_online 4
+liniot_telemetry_points 32118
+liniot_rules_total 2
+liniot_alerts_open 1
+liniot_alerts_triggered_24h 5
+```
+
+Prometheus 抓取配置示例：
+
+```yaml
+scrape_configs:
+  - job_name: liniot
+    static_configs:
+      - targets: ["<host>:8000"]
+```
 
 ## 健康与概览
 

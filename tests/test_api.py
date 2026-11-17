@@ -459,3 +459,79 @@ def test_device_shadow_flow(tmp_path):
 
         # 不存在的设备 404
         assert client.get("/api/devices/ghost/shadow").status_code == 404
+
+
+def test_token_role_edit_and_last_admin_guard(tmp_path):
+    """令牌角色可视化编辑：PATCH 生效；最后一个可用管理员不可降级/吊销（防自锁）。"""
+    from fastapi.testclient import TestClient
+    from liniot.config import Config
+    from liniot.main import create_app
+
+    app = create_app(Config(db_path=tmp_path / "edit.db", web_dir=tmp_path / "no-web"))
+    with TestClient(app) as c:
+        # 匿名开放模式：签发唯一 admin + 一枚 device 令牌
+        admin = c.post("/api/tokens", json={"name": "管理员", "role": "admin"}).json()
+        h_admin = {"X-Auth-Token": admin["token"]}
+        device = c.post("/api/tokens", json={"name": "产线A", "role": "device"},
+                        headers=h_admin).json()
+        h_device = {"X-Auth-Token": device["token"]}
+
+        # device 角色无权修改（admin 专属路由）
+        assert c.patch(f"/api/tokens/{device['id']}", json={"role": "viewer"},
+                       headers=h_device).status_code == 403
+        # 非法角色 422
+        assert c.patch(f"/api/tokens/{device['id']}", json={"role": "root"},
+                       headers=h_admin).status_code == 422
+        # 正常改角色 device → viewer
+        r = c.patch(f"/api/tokens/{device['id']}", json={"role": "viewer"}, headers=h_admin)
+        assert r.status_code == 200 and r.json()["role"] == "viewer"
+        assert "token_hash" not in r.json()
+        roles = {t["name"]: t["role"] for t in c.get("/api/tokens", headers=h_admin).json()}
+        assert roles == {"产线A": "viewer", "管理员": "admin"}
+
+        # 防自锁：唯一 admin 不可降级、不可吊销
+        assert c.patch(f"/api/tokens/{admin['id']}", json={"role": "viewer"},
+                       headers=h_admin).status_code == 409
+        assert c.delete(f"/api/tokens/{admin['id']}", headers=h_admin).status_code == 409
+
+        # 再签发一枚 admin 后即可降级前者
+        spare = c.post("/api/tokens", json={"name": "备用管理员", "role": "admin"},
+                       headers=h_admin).json()
+        assert c.patch(f"/api/tokens/{admin['id']}", json={"role": "viewer"},
+                       headers=h_admin).status_code == 200
+
+    # 环境变量令牌兜底：LINIOT_AUTH_TOKEN 存在时，唯一动态 admin 可降级
+    app2 = create_app(Config(db_path=tmp_path / "edit2.db", web_dir=tmp_path / "no-web",
+                             auth_token="env-admin-key"))
+    with TestClient(app2) as c2:
+        sole = c2.post("/api/tokens", json={"name": "唯一管理员", "role": "admin"},
+                       headers={"X-Auth-Token": "env-admin-key"}).json()
+        assert c2.patch(f"/api/tokens/{sole['id']}", json={"role": "viewer"},
+                        headers={"X-Auth-Token": "env-admin-key"}).status_code == 200
+
+
+def test_prometheus_metrics(client):
+    """/metrics 暴露聚合指标，鉴权开启后仍保持开放（与 health 同策略）。"""
+    client.post("/api/devices", json={"id": "sensor-1", "name": "s", "type": "sensor"})
+    client.post("/api/devices/sensor-1/telemetry",
+                json={"metric": "temperature", "value": 25})
+    client.post("/api/rules", json={"metric": "temperature", "op": ">", "threshold": 30})
+    client.post("/api/devices/sensor-1/telemetry",
+                json={"metric": "temperature", "value": 35})  # 触发一条开放告警
+
+    resp = client.get("/metrics")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/plain")
+    text = resp.text
+    assert 'liniot_build_info{version="' in text
+    assert "liniot_devices_total 1" in text
+    assert "liniot_devices_online 1" in text
+    assert "liniot_telemetry_points 2" in text
+    assert "liniot_rules_total 1" in text
+    assert "liniot_alerts_open 1" in text
+    assert "liniot_alerts_triggered_24h 1" in text
+    # 文本格式自检：每个指标都有 TYPE 声明
+    names = [l for l in text.splitlines() if l.startswith("liniot_") and "# " not in l]
+    assert all(any(l.startswith(f"# TYPE {n.split('{')[0]} ") or
+                   l.startswith(f"# TYPE {n.split(' ')[0]} ")
+               for l in text.splitlines()) for n in names)

@@ -1,5 +1,14 @@
 # Changelog
 
+## 未发布
+
+- 令牌角色可视化编辑：令牌列表内直接修改角色（`PATCH /api/tokens/{id}`），
+  页面新增角色权限矩阵说明；**防自锁守卫**——最后一个可用管理员身份
+  （无环境令牌兜底时）不可降级或吊销，返回 409
+- Prometheus 指标端点：`GET /metrics` 输出设备总数/在线数/遥测保留点数/
+  规则数/开放与 24h 告警计数（文本格式，gauge），与 health 同策略保持开放；
+  SQLite 与 PostgreSQL 后端均支持
+
 ## 0.5.0 (2026-11-17)
 
 - PostgreSQL 存储后端：`LINIOT_DB_URL` 指向 PG DSN 即切换（可选依赖

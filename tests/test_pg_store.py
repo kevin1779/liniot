@@ -130,6 +130,13 @@ def test_api_tokens_lifecycle(pgstore):
     assert found is not None and found["id"] == token["id"]
     assert pgstore.find_token(hash_token("wrong-token")) is None
 
+    # 角色编辑与防自锁计数
+    updated = pgstore.update_token(token["id"], "device")
+    assert updated["role"] == "device"
+    admin = pgstore.create_token("管理员", "admin", hash_token("liniot_admin"))
+    assert pgstore.count_active_admin_tokens() == 1
+    assert pgstore.count_active_admin_tokens(exclude_id=admin["id"]) == 0
+
     first = pgstore.list_tokens()[0]["last_used_at"]
     time.sleep(0.01)
     pgstore.find_token(hash_token("liniot_secret"))  # 节流窗口内不刷新
@@ -139,7 +146,7 @@ def test_api_tokens_lifecycle(pgstore):
     assert revoked["revoked_at"] is not None
     assert pgstore.find_token(hash_token("liniot_secret")) is None
     assert pgstore.revoke_token(token["id"])["revoked_at"] == revoked["revoked_at"]
-    assert len(pgstore.list_tokens()) == 1  # 已吊销记录仍在列表中
+    assert len(pgstore.list_tokens()) == 2  # 已吊销记录仍在列表中
     assert pgstore.revoke_token(999) is None
 
 
@@ -212,3 +219,8 @@ def test_pg_backend_app():
         assert token["token"].startswith("liniot_")
         h = {"X-Auth-Token": token["token"]}
         assert client.get("/api/tokens", headers=h).json()[0]["name"] == "管理员"
+
+        # /metrics 在 PG 后端同样可用；最后一个 admin 不可降级（防自锁）
+        assert "liniot_devices_total 1" in client.get("/metrics").text
+        assert client.patch(f"/api/tokens/{token['id']}", json={"role": "viewer"},
+                            headers=h).status_code == 409
