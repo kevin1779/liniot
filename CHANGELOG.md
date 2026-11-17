@@ -1,6 +1,6 @@
 # Changelog
 
-## 未发布
+## 0.5.0 (2026-11-17)
 
 - PostgreSQL 存储后端：`LINIOT_DB_URL` 指向 PG DSN 即切换（可选依赖
   `pip install ".[postgres]"`，psycopg 3），与 SQLite 后端七域同接口、
