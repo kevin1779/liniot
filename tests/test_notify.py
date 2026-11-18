@@ -81,3 +81,54 @@ def test_rule_fire_pushes_to_alert_webhooks(tmp_path, monkeypatch):
     assert urls == ["https://example.com/generic", "https://oapi.dingtalk.com/x"]
     assert posted[0][1]["message"].startswith("设备 sensor-1")  # 通用透传
     assert posted[1][1]["text"]["content"].startswith("LinIoT 告警")  # 钉钉报文
+
+
+# ------------------------------------------------------------------ 自定义模板
+
+TEMPLATE = "[车间A] {device_name}({device_id}) {level}: {message} | {metric}={value}"
+CONTEXT = {"metric": "temperature", "value": "31", "device_name": "传感器"}
+ALERT_T = {**ALERT, "level": "warning"}
+EXPECTED = ("[车间A] 传感器(sensor-1) warning: 设备 sensor-1 的 temperature = 31 > 30"
+            " | temperature=31")
+
+
+def test_default_text_unchanged_without_template():
+    assert build_payload("dingtalk", ALERT) == build_payload("dingtalk", ALERT, "", CONTEXT)
+    assert build_payload("feishu", ALERT, "")["content"]["text"] == \
+        f"LinIoT 告警: {ALERT['message']}"
+
+
+def test_template_applies_to_three_channels():
+    ding = build_payload("dingtalk", ALERT_T, TEMPLATE, CONTEXT)
+    wecom = build_payload("wecom", ALERT_T, TEMPLATE, CONTEXT)
+    feishu = build_payload("feishu", ALERT_T, TEMPLATE, CONTEXT)
+    assert ding == {"msgtype": "text", "text": {"content": EXPECTED}}
+    assert wecom == {"msgtype": "text", "text": {"content": EXPECTED}}
+    assert feishu == {"msg_type": "text", "content": {"text": EXPECTED}}
+    assert build_payload("generic", ALERT_T, TEMPLATE, CONTEXT) is ALERT_T  # 通用透传不变
+
+
+def test_template_unknown_placeholder_is_empty():
+    out = build_payload("dingtalk", ALERT_T, "{device_id}|{nope}|{ts}", CONTEXT)
+    assert out["text"]["content"] == "sensor-1||1000.0"
+
+
+@pytest.mark.parametrize("bad", ["{", "oops }", "{0}", "{device_id!z}", "{message.nope}"])
+def test_bad_template_falls_back_to_default(bad):
+    out = build_payload("dingtalk", ALERT_T, bad, CONTEXT)
+    assert out["text"]["content"] == f"LinIoT 告警: {ALERT['message']}"
+
+
+def test_rule_fire_uses_template(tmp_path, monkeypatch):
+    posted = []
+    monkeypatch.setattr(rules.httpx, "post",
+                        lambda url, json=None, timeout=None: posted.append((url, json)))
+    store = Store(tmp_path / "t.db")
+    engine = RuleEngine(store, EventBus(), alert_webhooks=("https://oapi.dingtalk.com/x",),
+                        alert_template="[车间A] {device_name} {metric}={value} ({level})")
+    store.upsert_device("sensor-1", "传感器", "sensor", {})
+    store.create_rule("sensor-1", "temperature", ">", 30)
+
+    engine.evaluate("sensor-1", [{"metric": "temperature", "value": 31}])
+
+    assert posted[0][1]["text"]["content"] == "[车间A] 传感器 temperature=31 (warning)"
