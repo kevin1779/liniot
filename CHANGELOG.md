@@ -1,5 +1,9 @@
 # Changelog
 
+## 未发布
+
+- 设备上线/离线事件推送：后台巡检线程（间隔 `online_timeout / 2`）发现在线状态翻转时，复用 `LINIOT_WEBHOOK_URL` 与 `LINIOT_ALERT_WEBHOOKS` 通道通知（钉钉/飞书/企微自动识别；Webhook 报文含 `event`/`device_id`/`device_name`/`ts`）；`LINIOT_DEVICE_EVENTS=off` 关闭，默认开启
+
 ## 0.6.0 (2026-11-18)
 
 - TimescaleDB 支持：PG 后端启动时自动探测 timescaledb 扩展，存在则将
