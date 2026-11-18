@@ -14,6 +14,7 @@ from .ai import DiagnosisRateLimiter
 from .api import build_router, register_websocket
 from .bus import EventBus
 from .config import Config, load_config
+from .device_events import DeviceEventMonitor
 from .modbus_service import ModbusService
 from .mqtt_service import MQTTService
 from .rules import RuleEngine
@@ -73,12 +74,17 @@ def create_app(config: Config | None = None) -> FastAPI:
     mqtt.service = devices
     devices.scene_engine = SceneEngine(store, devices)
     modbus = ModbusService(config.modbus, devices)
+    device_events = DeviceEventMonitor(store, devices, config.webhook_url,
+                                       config.alert_webhooks,
+                                       interval=config.online_timeout / 2,
+                                       enabled=config.device_events)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         bus.attach_loop(asyncio.get_running_loop())
         mqtt.start()
         modbus.start()
+        device_events.start()
         worker = (asyncio.create_task(diagnosis_worker(store, devices, config, bus))
                   if config.ai.diagnosis else None)
         yield
@@ -86,6 +92,7 @@ def create_app(config: Config | None = None) -> FastAPI:
             worker.cancel()
         mqtt.stop()
         modbus.stop()
+        device_events.stop()
 
     app = FastAPI(title="LinIoT", version=__version__, description=DESCRIPTION,
                   lifespan=lifespan)
@@ -99,6 +106,6 @@ def create_app(config: Config | None = None) -> FastAPI:
         app.mount("/", StaticFiles(directory=str(config.web_dir), html=True), name="web")
 
     app.state.liniot = {"store": store, "bus": bus, "rules": rules,
-                        "devices": devices, "mqtt": mqtt, "modbus": modbus,
+                        "devices": devices, "mqtt": mqtt, "modbus": modbus, "device_events": device_events,
                         "config": config}
     return app

@@ -108,6 +108,7 @@ bash examples/curl-demo.sh   # 纯 API 演示：注册→上报→规则→告�
 | `LINIOT_API_TOKENS` | 空 | 多用户令牌 `名称:令牌:角色`，分号分隔；角色 ∈ admin/device/viewer。也可不改环境变量，直接在仪表盘「访问令牌」页动态签发/吊销（默认开放模式下签发首个令牌即开启鉴权） |
 | `LINIOT_WEBHOOK_URL` | 空 | 告警回调地址（POST JSON） |
 | `LINIOT_ALERT_WEBHOOKS` | 空 | 群机器人推送，分号分隔多个；按 URL 自动识别钉钉/飞书/企业微信，其他地址原样透传 JSON |
+| `LINIOT_DEVICE_EVENTS` | `on` | 设备上线/离线翻转时推送事件到 `LINIOT_WEBHOOK_URL` 与 `LINIOT_ALERT_WEBHOOKS`（Webhook 报文 `{"event": "online"/"offline", "device_id", "device_name", "ts"}`）；`off`/`0`/`false` 关闭 |
 | `LINIOT_MQTT_HOST` | 空 | Broker 地址，空 = 禁用 MQTT |
 | `LINIOT_MQTT_PORT` | `1883` | Broker 端口 |
 | `LINIOT_MQTT_USERNAME` / `LINIOT_MQTT_PASSWORD` | 空 | Broker 凭据 |
