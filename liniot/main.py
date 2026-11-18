@@ -66,10 +66,12 @@ def create_app(config: Config | None = None) -> FastAPI:
         store = Store(config.db_path)
     bus = EventBus()
     rules = RuleEngine(store, bus, config.webhook_url,
-                       alert_webhooks=config.alert_webhooks)
+                       alert_webhooks=config.alert_webhooks,
+                       alert_template=config.alert_template)
     mqtt = MQTTService(config.mqtt, service=None)
     devices = DeviceService(store, bus, rules, mqtt, config.online_timeout,
-                            config.webhook_url, config.alert_webhooks)
+                            config.webhook_url, config.alert_webhooks,
+                            config.alert_template)
     mqtt.service = devices
     devices.scene_engine = SceneEngine(store, devices)
     modbus = ModbusService(config.modbus, devices)

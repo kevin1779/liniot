@@ -26,7 +26,8 @@ class UnknownDevice(KeyError):
 class DeviceService:
     def __init__(self, store, bus: EventBus, rules: RuleEngine,
                  mqtt=None, online_timeout: float = 90.0,
-                 webhook_url: str = "", alert_webhooks: tuple = ()) -> None:
+                 webhook_url: str = "", alert_webhooks: tuple = (),
+                 alert_template: str = "") -> None:
         self.store = store
         self.bus = bus
         self.rules = rules
@@ -34,6 +35,7 @@ class DeviceService:
         self.online_timeout = online_timeout
         self.webhook_url = webhook_url
         self.alert_webhooks = tuple(alert_webhooks)
+        self.alert_template = alert_template
         self.anomaly = AnomalyDetector()
         # SceneEngine 由 create_app 在装配阶段注入，避免构造循环依赖
         self.scene_engine = None
@@ -90,7 +92,8 @@ class DeviceService:
                      "diagnosis": None, "acknowledged": 0, "acknowledged_at": None}
             self.bus.publish({"type": "alert", "data": alert})
             notify_webhook(self.webhook_url, alert)
-            notify_channels(self.alert_webhooks, alert)
+            notify_channels(self.alert_webhooks, alert, self.alert_template,
+                            {"metric": hit["metric"], "value": f"{hit['value']:g}", "device_name": (self.store.get_device(device_id) or {}).get("name", "")})
             logger.warning("异常检测触发: %s", message)
 
     def set_status(self, device_id: str, status: str,

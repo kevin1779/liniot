@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import defaultdict
 from typing import Any, Callable
 
 import httpx
@@ -44,37 +45,65 @@ def detect_channel(url: str) -> str:
     return "generic"
 
 
-def alert_text(alert: dict[str, Any]) -> str:
+def render_template(template: str, alert: dict[str, Any],
+                    context: dict[str, Any] | None = None) -> str | None:
+    """用告警字段渲染自定义模板；渲染失败返回 None（调用方回退内置文案）。
+
+    占位符：device_id / device_name / message / level / metric / value / ts，
+    缺省为空字符串；未知占位符同样渲染为空，不会抛 KeyError。
+    """
+    try:
+        fields = {**alert, **(context or {})}
+        values: defaultdict[str, Any] = defaultdict(str)
+        for key in ("device_id", "device_name", "message", "level", "metric", "value", "ts"):
+            val = fields.get(key)
+            values[key] = "" if val is None else val
+        return template.format_map(values)
+    except Exception as exc:
+        logger.warning("LINIOT_ALERT_TEMPLATE 渲染失败，回退内置文案: %s", exc)
+        return None
+
+
+def alert_text(alert: dict[str, Any], template: str = "",
+               context: dict[str, Any] | None = None) -> str:
+    if template:
+        text = render_template(template, alert, context)
+        if text is not None:
+            return text
     return f"LinIoT 告警: {alert.get('message', '')}"
 
 
-def build_payload(channel: str, alert: dict[str, Any]) -> dict[str, Any]:
+def build_payload(channel: str, alert: dict[str, Any], template: str = "",
+                  context: dict[str, Any] | None = None) -> dict[str, Any]:
     """按渠道构造群机器人报文；generic 原样透传告警 JSON。"""
-    if channel == "dingtalk":
-        return {"msgtype": "text", "text": {"content": alert_text(alert)}}
-    if channel == "wecom":
-        return {"msgtype": "text", "text": {"content": alert_text(alert)}}
+    if channel in ("dingtalk", "wecom"):
+        return {"msgtype": "text",
+                "text": {"content": alert_text(alert, template, context)}}
     if channel == "feishu":
-        return {"msg_type": "text", "content": {"text": alert_text(alert)}}
+        return {"msg_type": "text",
+                "content": {"text": alert_text(alert, template, context)}}
     return alert
 
 
-def notify_channels(urls, alert: dict[str, Any]) -> None:
+def notify_channels(urls, alert: dict[str, Any], template: str = "",
+                    context: dict[str, Any] | None = None) -> None:
     """把告警推送到群机器人列表（钉钉/飞书/企业微信自动识别）。"""
     for url in urls:
         try:
-            httpx.post(url, json=build_payload(detect_channel(url), alert), timeout=3)
+            httpx.post(url, json=build_payload(detect_channel(url), alert,
+                                               template, context), timeout=3)
         except Exception as exc:
             logger.warning("告警通知推送失败 %s: %s", url, exc)
 
 
 class RuleEngine:
     def __init__(self, store, bus, webhook_url: str = "",
-                 alert_webhooks: tuple = ()) -> None:
+                 alert_webhooks: tuple = (), alert_template: str = "") -> None:
         self.store = store
         self.bus = bus
         self.webhook_url = webhook_url
         self.alert_webhooks = tuple(alert_webhooks)
+        self.alert_template = alert_template
         # 触发态按 (规则, 设备) 记录：全局规则对每台设备独立做上升沿判定
         self._active: dict[tuple[int, str], bool] = {}
 
@@ -114,7 +143,8 @@ class RuleEngine:
                  "diagnosis": None, "acknowledged": 0, "acknowledged_at": None}
         self.bus.publish({"type": "alert", "data": alert})
         notify_webhook(self.webhook_url, alert)
-        notify_channels(self.alert_webhooks, alert)
+        notify_channels(self.alert_webhooks, alert, self.alert_template,
+                        {"metric": rule["metric"], "value": f"{value:g}", "device_name": (self.store.get_device(device_id) or {}).get("name", "")})
         logger.warning("规则触发: %s", message)
         return alert
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 未发布
+
+- 告警推送文案模板：新增 `LINIOT_ALERT_TEMPLATE`，支持 `{device_id}`/`{device_name}`/`{message}`/`{level}`/`{metric}`/`{value}`/`{ts}` 占位符，仅替换钉钉/飞书/企微的文本内容；未知占位符渲染为空，渲染失败回退内置文案并记录警告；默认空 = 内置文案，行为不变
+
 ## 0.6.0 (2026-11-18)
 
 - TimescaleDB 支持：PG 后端启动时自动探测 timescaledb 扩展，存在则将
