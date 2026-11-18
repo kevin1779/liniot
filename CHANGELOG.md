@@ -1,6 +1,6 @@
 # Changelog
 
-## 未发布
+## 0.6.0 (2026-11-18)
 
 - TimescaleDB 支持：PG 后端启动时自动探测 timescaledb 扩展，存在则将
   telemetry 转为按天分块的 hypertable（best-effort，扩展缺失或迁移失败

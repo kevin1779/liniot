@@ -51,7 +51,7 @@
 - [x] **PostgreSQL 存储后端**：`liniot/pg_store.py` 与 SQLite 同接口七域实现，
       `LINIOT_DB_URL` 启用（psycopg 3 可选依赖），CI 带 PG 容器跑对齐测试。
 
-## v0.6（规划中）
+## v0.6（已发布，2026-11-18）
 
 主题：可观测性与权限完善——把 LinIoT 接进主流监控/权限工具链（预计 12 月上旬发布）。
 
