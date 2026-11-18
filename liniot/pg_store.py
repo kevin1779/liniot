@@ -39,7 +39,9 @@ PG_SCHEMA: list[str] = [
         created_at DOUBLE PRECISION NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS telemetry (
-        id        BIGSERIAL PRIMARY KEY,
+        -- 不设 PRIMARY KEY：TimescaleDB 要求唯一索引包含分块列 ts，
+        -- id 仍由序列保证唯一，查询仅依赖其排序语义
+        id        BIGSERIAL,
         device_id TEXT NOT NULL,
         metric    TEXT NOT NULL,
         value     DOUBLE PRECISION NOT NULL,
