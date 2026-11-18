@@ -136,4 +136,7 @@ delta 自然清空。
   shadows/api_tokens 七域）。PostgreSQL 实现已随 `liniot/pg_store.py` 提供：
   设置 `LINIOT_DB_URL` 即启用（需 `pip install ".[postgres]"`，psycopg 3，
   可选依赖），行为一致性由带 postgres service 容器的 CI 对齐测试保证；
-  SQLite 仍为默认。
+  SQLite 仍为默认。PG 后端启动时探测 timescaledb 扩展——存在则把 telemetry
+  转为按天分块的 hypertable（best-effort，失败退回普通表），CI 镜像即
+  timescaledb 以覆盖该路径；不自动启用压缩策略（压缩 chunk 与环形保留的
+  DELETE 冲突，交由用户按需开启）。

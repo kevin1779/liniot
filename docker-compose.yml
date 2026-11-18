@@ -37,6 +37,22 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  # 可选：TimescaleDB（PG 后端的时序增强版，PG 16 兼容）。
+  # docker compose --profile timescale up -d timescale
+  # 平台启动时自动探测扩展并把 telemetry 转为按天分块的 hypertable
+  timescale:
+    image: timescale/timescaledb:latest-pg16
+    profiles: ["timescale"]
+    environment:
+      POSTGRES_USER: liniot
+      POSTGRES_PASSWORD: liniot
+      POSTGRES_DB: liniot
+    ports:
+      - "5433:5432"
+    volumes:
+      - tsdata:/var/lib/postgresql/data
+
 volumes:
   liniot-data:
   pgdata:
+  tsdata:

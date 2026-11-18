@@ -61,9 +61,11 @@
 - [x] **Prometheus 指标端点**：`GET /metrics` 输出设备总数/在线数/遥测
       保留点数/规则数/开放与 24h 告警计数（文本格式 gauge），配合 Grafana
       即刻接入主流监控栈（无需单独的数据源插件）。
-- [ ] **TimescaleDB 支持**：PG 后端启动时自动探测 timescaledb 扩展并
-      将 telemetry 转为 hypertable（原生压缩与降采样），扩展缺失时静默
-      退回普通表；compose 提供 `--profile timescale` 变体与文档。
+- [x] **TimescaleDB 支持**：PG 后端启动时自动探测 timescaledb 扩展并
+      将 telemetry 转为按天分块的 hypertable（分区与降采样加速），扩展
+      缺失或迁移失败时静默退回普通表；不自动启用压缩（与环形保留的
+      DELETE 冲突，交由用户按需开启）；compose 提供 `--profile timescale`
+      变体与文档。
 
 ## 远期想法
 

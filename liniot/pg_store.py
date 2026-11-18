@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from collections.abc import Iterator
@@ -22,6 +23,8 @@ import psycopg
 from psycopg.rows import dict_row
 
 from .store import _row_to_device, hash_token
+
+logger = logging.getLogger("liniot.pg")
 
 PG_SCHEMA: list[str] = [
     """CREATE TABLE IF NOT EXISTS devices (
@@ -117,12 +120,37 @@ class PostgresStore:
         self.dsn = dsn
         self.lock = threading.RLock()
         self._inserts_since_prune = 0
+        self.timescaledb = False
         with self.lock:
             # autocommit：语句即提交，避免只读查询把连接留在
             # idle-in-transaction 状态长期持有表锁（truncate/迁移会被卡住）
             self.conn = psycopg.connect(dsn, row_factory=dict_row, autocommit=True)
             for statement in PG_SCHEMA:
                 self.conn.execute(statement)
+            self._try_enable_timescaledb()
+
+    def _try_enable_timescaledb(self) -> None:
+        """探测 timescaledb 扩展并把 telemetry 转为 hypertable（best-effort）。
+
+        扩展缺失、权限不足或已有数据迁移失败时记一条告警并退回普通表——
+        不影响任何功能。不自动启用压缩策略：压缩 chunk 会与环形保留的
+        DELETE 冲突，是否压缩交由用户按 TimescaleDB 文档自行决定。
+        """
+        try:
+            row = self.conn.execute(
+                "SELECT extname FROM pg_extension WHERE extname='timescaledb'"
+            ).fetchone()
+            if row is None:
+                return  # 未安装扩展：普通表即可
+            self.conn.execute(
+                "SELECT create_hypertable('telemetry', 'ts',"
+                " if_not_exists => TRUE, migrate_data => TRUE,"
+                " chunk_time_interval => INTERVAL '1 day')"
+            )
+            self.timescaledb = True
+            logger.info("TimescaleDB 已启用：telemetry 转为 hypertable（按天分块）")
+        except Exception as exc:
+            logger.warning("TimescaleDB hypertable 启用失败，退回普通表: %s", exc)
 
     def _one(self, sql: str, params: tuple | list = ()) -> Optional[dict[str, Any]]:
         with self.lock:

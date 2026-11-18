@@ -187,6 +187,22 @@ def test_shadow_command_requeue(pgstore):
     assert pgstore.requeue_shadow_commands("light-1", {}, grace=0) == []
 
 
+def test_timescaledb_detection(pgstore):
+    """探测行为与库内实际状态一致：有扩展则 hypertable，无则普通表。"""
+    ext = pgstore.conn.execute(
+        "SELECT 1 FROM pg_extension WHERE extname='timescaledb'").fetchone()
+    assert pgstore.timescaledb == bool(ext)
+    if ext:
+        hypertables = pgstore.conn.execute(
+            "SELECT hypertable_name FROM timescaledb_information.hypertables"
+            " WHERE hypertable_name='telemetry'").fetchall()
+        assert len(hypertables) == 1
+        # hypertable 上常规读写与聚合全部可用
+        pgstore.insert_telemetry("light-1", [{"metric": "t", "value": 1.0, "ts": 1.0}])
+        assert pgstore.count_telemetry() == 1
+        assert pgstore.aggregate_telemetry("light-1", window=60)
+
+
 def test_pg_backend_app():
     """LINIOT_DB_URL 指向 PG 时 create_app 全链路可用。"""
     from pathlib import Path

@@ -101,7 +101,7 @@ bash examples/curl-demo.sh   # 纯 API 演示：注册→上报→规则→告�
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `LINIOT_DB_PATH` | `data/liniot.db` | SQLite 文件路径 |
-| `LINIOT_DB_URL` | 空 | PostgreSQL DSN（如 `postgresql://liniot:liniot@127.0.0.1:5432/liniot`）；设置后改用 PG 后端（需 `pip install ".[postgres]"`），未设置仍用 SQLite |
+| `LINIOT_DB_URL` | 空 | PostgreSQL DSN（如 `postgresql://liniot:liniot@127.0.0.1:5432/liniot`）；设置后改用 PG 后端（需 `pip install ".[postgres]"`）。库内装有 TimescaleDB 扩展时自动将 telemetry 转为 hypertable（按天分块，未装则普通表），compose 提供 `--profile postgres / timescale` 变体 |
 | `LINIOT_RETENTION` | `20000` | 每设备遥测保留条数 |
 | `LINIOT_ONLINE_TIMEOUT` | `90` | 超过该秒数无上报视为离线 |
 | `LINIOT_AUTH_TOKEN` | 空 | 访问令牌；设置后所有 API 与 WebSocket 需携带（仪表盘弹验证框） |

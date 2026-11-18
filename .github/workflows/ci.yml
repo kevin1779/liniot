@@ -12,10 +12,11 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
-    # PostgreSQL 后端对齐测试：service 容器注入 DSN，无 DSN 的环境自动跳过
+    # PostgreSQL 后端对齐测试：service 容器注入 DSN，无 DSN 的环境自动跳过。
+    # 镜像用 timescaledb（PG 16 完全兼容），顺带验证 hypertable 自动启用路径
     services:
       postgres:
-        image: postgres:16
+        image: timescale/timescaledb:latest-pg16
         env:
           POSTGRES_USER: liniot
           POSTGRES_PASSWORD: liniot
