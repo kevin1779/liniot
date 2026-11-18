@@ -6,7 +6,10 @@
   telemetry 转为按天分块的 hypertable（best-effort，扩展缺失或迁移失败
   静默退回普通表）；不自动启用压缩策略（压缩 chunk 与环形保留的 DELETE
   冲突，交由用户按需开启）；CI 改用 timescaledb 镜像使对齐测试覆盖
-  hypertable 路径；docker-compose 新增 `--profile timescale` 变体
+  hypertable 路径；docker-compose 新增 `--profile timescale` 变体。
+  **注意**：telemetry.ts 列类型从 DOUBLE PRECISION 改为 TIMESTAMPTZ
+  （TimescaleDB 分块列要求时间类型），旧 PG 库升级后 hypertable 转换会
+  静默跳过，重建库后生效；对外 API 的时间戳语义不变（float epoch）
 - 令牌角色可视化编辑：令牌列表内直接修改角色（`PATCH /api/tokens/{id}`），
   页面新增角色权限矩阵说明；**防自锁守卫**——最后一个可用管理员身份
   （无环境令牌兜底时）不可降级或吊销，返回 409

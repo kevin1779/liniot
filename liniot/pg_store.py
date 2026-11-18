@@ -17,6 +17,7 @@ import logging
 import threading
 import time
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import psycopg
@@ -42,7 +43,9 @@ PG_SCHEMA: list[str] = [
         device_id TEXT NOT NULL,
         metric    TEXT NOT NULL,
         value     DOUBLE PRECISION NOT NULL,
-        ts        DOUBLE PRECISION NOT NULL
+        -- TimescaleDB 的分块列必须是时间类型，故用 TIMESTAMPTZ 存 epoch；
+        -- 边界处与 float epoch 互转，对外 API 语义与 SQLite 完全一致
+        ts        TIMESTAMPTZ NOT NULL
     )""",
     "CREATE INDEX IF NOT EXISTS idx_tel_dev_metric_ts ON telemetry(device_id, metric, ts)",
     """CREATE TABLE IF NOT EXISTS rules (
@@ -228,9 +231,10 @@ class PostgresStore:
 
     def insert_telemetry(self, device_id: str, points: list[dict[str, Any]]) -> int:
         now = time.time()
-        # ts=0 是合法时间戳，须用显式判空而非 or 兜底
+        # ts=0 是合法时间戳，须用显式判空而非 or 兜底；epoch float → UTC datetime
         rows = [(device_id, p["metric"], float(p["value"]),
-                 float(p["ts"]) if p.get("ts") is not None else now)
+                 datetime.fromtimestamp(float(p["ts"]) if p.get("ts") is not None
+                                        else now, tz=timezone.utc))
                 for p in points]
         with self.lock:
             with self.conn.cursor() as cur:
@@ -238,7 +242,6 @@ class PostgresStore:
                     "INSERT INTO telemetry(device_id,metric,value,ts) VALUES(%s,%s,%s,%s)",
                     rows,
                 )
-            self.conn.commit()
             self._inserts_since_prune += len(rows)
             if self._inserts_since_prune >= 200:
                 self._inserts_since_prune = 0
@@ -277,7 +280,8 @@ class PostgresStore:
         sql += " ORDER BY ts DESC, id DESC LIMIT %s"
         params.append(limit)
         rows = self._all(sql, params)
-        return [{"metric": r["metric"], "value": r["value"], "ts": r["ts"]}
+        return [{"metric": r["metric"], "value": r["value"],
+                 "ts": r["ts"].timestamp()}  # TIMESTAMPTZ → float epoch
                 for r in reversed(rows)]
 
     def iter_telemetry(self, device_id: str, metric: Optional[str] = None,
@@ -308,13 +312,18 @@ class PostgresStore:
             if not rows:
                 return
             for r in rows:
-                yield {"metric": r["metric"], "value": r["value"], "ts": r["ts"]}
+                yield {"metric": r["metric"], "value": r["value"],
+                       "ts": r["ts"].timestamp()}
             last_id = rows[-1]["id"]
 
     def aggregate_telemetry(self, device_id: str, metric: Optional[str] = None,
                             window: int = 300) -> list[dict[str, Any]]:
-        """按时间桶聚合遥测：返回每 (metric, 桶) 的 count/avg/min/max。"""
-        sql = ("SELECT metric, FLOOR(ts / %s)::bigint * %s AS bucket,"
+        """按时间桶聚合遥测：返回每 (metric, 桶) 的 count/avg/min/max。
+
+        桶按 floor(epoch 秒 / window) * window 对齐（UTC 秒），与 SQLite
+        后端的 CAST 行为一致，输出 ts 为整数 epoch。
+        """
+        sql = ("SELECT metric, FLOOR(EXTRACT(epoch FROM ts) / %s)::bigint * %s AS bucket,"
                " COUNT(*) AS count, AVG(value) AS avg,"
                " MIN(value) AS min, MAX(value) AS max"
                " FROM telemetry WHERE device_id=%s")
@@ -333,7 +342,8 @@ class PostgresStore:
             "SELECT device_id, metric, value, ts FROM telemetry"
             " WHERE id IN (SELECT MAX(id) FROM telemetry GROUP BY device_id, metric)"
         )
-        return {(r["device_id"], r["metric"]): {"value": r["value"], "ts": r["ts"]}
+        return {(r["device_id"], r["metric"]): {"value": r["value"],
+                                                "ts": r["ts"].timestamp()}
                 for r in rows}
 
     def metrics_of(self, device_id: str) -> list[str]:
