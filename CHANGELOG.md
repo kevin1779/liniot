@@ -1,5 +1,13 @@
 # Changelog
 
+## 未发布
+
+- 设备上下线事件推送：后台巡检线程（间隔 LINIOT_ONLINE_TIMEOUT/2）发现设备
+  超时离线即翻转落库状态并推送离线通知；设备恢复上报（touch 同步置 online）
+  时即时推送上线通知。群机器人文案「设备 名称 (id) 已离线/已上线」，通用
+  回调透传 {"event", "device_id", "device_name", "ts"}；新增开关
+  `LINIOT_DEVICE_EVENTS`（默认 on），off 时行为与旧版本完全一致
+
 ## 0.6.0 (2026-11-18)
 
 - TimescaleDB 支持：PG 后端启动时自动探测 timescaledb 扩展，存在则将

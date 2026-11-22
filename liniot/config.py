@@ -95,6 +95,7 @@ class Config:
     api_tokens: tuple = ()               # 多用户令牌：{"name","token","role"} 列表
     webhook_url: str = ""                # 规则触发时的通用 JSON 回调
     alert_webhooks: tuple = ()           # 群机器人推送（钉钉/飞书/企微自动识别）
+    device_events: bool = True           # 设备上下线事件推送开关（Issue #11）
     mqtt: MQTTConfig = field(default_factory=MQTTConfig)
     modbus: ModbusConfig = field(default_factory=ModbusConfig)
     ai: AIConfig = field(default_factory=AIConfig)
@@ -118,6 +119,7 @@ def load_config() -> Config:
         alert_webhooks=tuple(u for u in
                              (s.strip() for s in env.get("LINIOT_ALERT_WEBHOOKS", "").replace(";", ",").split(","))
                              if u),
+        device_events=env.get("LINIOT_DEVICE_EVENTS", "on").lower() not in ("off", "0", "false"),
         mqtt=MQTTConfig(
             host=env.get("LINIOT_MQTT_HOST", ""),
             port=int(env.get("LINIOT_MQTT_PORT", "1883")),

@@ -37,6 +37,8 @@ class DeviceService:
         self.anomaly = AnomalyDetector()
         # SceneEngine 由 create_app 在装配阶段注入，避免构造循环依赖
         self.scene_engine = None
+        # 设备上下线事件巡检器，由 create_app 注入；为 None 时上下线不推送
+        self.event_monitor = None
 
     # ------------------------------------------------------------------ 注册
 
@@ -59,8 +61,10 @@ class DeviceService:
 
     def ingest(self, device_id: str, points: list[dict[str, Any]],
                source: str = "http") -> int:
-        if self.store.get_device(device_id) is None:
+        device = self.store.get_device(device_id)
+        if device is None:
             raise UnknownDevice(device_id)
+        was_offline = device["status"] == "offline"  # touch() 会同步置 online，先记下旧状态
         clean: list[dict[str, Any]] = []
         for p in points:
             metric, value = str(p.get("metric", "")), p.get("value")
@@ -71,6 +75,9 @@ class DeviceService:
             return 0
         count = self.store.insert_telemetry(device_id, clean)
         self.store.touch(device_id)
+        if was_offline and self.event_monitor is not None:
+            # 落库 offline 的设备恢复上报：推送上线事件（Issue #11）
+            self.event_monitor.notify_online(device_id)
         self.bus.publish({"type": "telemetry", "data": {"device_id": device_id,
                                                         "points": clean, "source": source}})
         self.rules.evaluate(device_id, clean)
