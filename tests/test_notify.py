@@ -81,3 +81,50 @@ def test_rule_fire_pushes_to_alert_webhooks(tmp_path, monkeypatch):
     assert urls == ["https://example.com/generic", "https://oapi.dingtalk.com/x"]
     assert posted[0][1]["message"].startswith("设备 sensor-1")  # 通用透传
     assert posted[1][1]["text"]["content"].startswith("LinIoT 告警")  # 钉钉报文
+
+
+# ------------------------------------------------------------------ 告警文案模板
+
+def test_alert_template_unset_keeps_builtin_text():
+    """未配置模板时三渠道文案与内置逐字节一致（Issue #12 向后兼容）。"""
+    builtin = f"LinIoT 告警: {ALERT['message']}"
+    for channel in ("dingtalk", "wecom"):
+        assert build_payload(channel, ALERT, "")["text"]["content"] == builtin
+    assert build_payload("feishu", ALERT, "")["content"]["text"] == builtin
+
+
+def test_alert_template_renders_all_channels(monkeypatch):
+    """配置模板后三渠道收到占位符替换后的文案；缺失字段渲染为空字符串。"""
+    posted = []
+
+    def fake_post(url, json=None, timeout=None):
+        posted.append((url, json))
+        return object()
+
+    monkeypatch.setattr(rules.httpx, "post", fake_post)
+    template = "告警[{level}] 设备 {device_id}: {message}（{device_name}）"
+    notify_channels(["https://oapi.dingtalk.com/x", "https://open.feishu.cn/x",
+                     "https://qyapi.weixin.qq.com/x"], ALERT, template)
+
+    # ALERT 无 level/device_name 字段 → 按缺省渲染为空
+    rendered = f"告警[] 设备 {ALERT['device_id']}: {ALERT['message']}（）"
+    assert posted[0][1]["text"]["content"] == rendered      # 钉钉
+    assert posted[1][1]["content"]["text"] == rendered      # 飞书
+    assert posted[2][1]["text"]["content"] == rendered      # 企业微信
+
+
+def test_alert_template_invalid_falls_back(monkeypatch, caplog):
+    """非法模板（裸花括号）渲染失败不崩溃：回退内置文案并记录 warning。"""
+    posted = []
+
+    def fake_post(url, json=None, timeout=None):
+        posted.append((url, json))
+        return object()
+
+    monkeypatch.setattr(rules.httpx, "post", fake_post)
+    with caplog.at_level("WARNING", logger="liniot.rules"):
+        notify_channels(["https://oapi.dingtalk.com/x"], ALERT, "告警: {message")
+
+    builtin = f"LinIoT 告警: {ALERT['message']}"
+    assert posted[0][1]["text"]["content"] == builtin
+    assert "告警模板渲染失败" in caplog.text
