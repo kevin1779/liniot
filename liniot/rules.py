@@ -48,22 +48,33 @@ def alert_text(alert: dict[str, Any]) -> str:
     return f"LinIoT 告警: {alert.get('message', '')}"
 
 
-def build_payload(channel: str, alert: dict[str, Any]) -> dict[str, Any]:
-    """按渠道构造群机器人报文；generic 原样透传告警 JSON。"""
+def device_event_text(event: dict[str, Any]) -> str:
+    """构造设备上下线事件文案，如「设备 智能灯-1 (light-1) 已离线」（Issue #11）。"""
+    state = "已上线" if event.get("event") == "online" else "已离线"
+    return f"设备 {event.get('device_name', '')} ({event.get('device_id', '')}) {state}"
+
+
+def build_payload(channel: str, alert: dict[str, Any],
+                  text: str | None = None) -> dict[str, Any]:
+    """按渠道构造群机器人报文；generic 原样透传告警 JSON。
+
+    text 非空时覆盖默认文案——设备上下线事件复用通道时传入（Issue #11）。
+    """
+    content = alert_text(alert) if text is None else text
     if channel == "dingtalk":
-        return {"msgtype": "text", "text": {"content": alert_text(alert)}}
+        return {"msgtype": "text", "text": {"content": content}}
     if channel == "wecom":
-        return {"msgtype": "text", "text": {"content": alert_text(alert)}}
+        return {"msgtype": "text", "text": {"content": content}}
     if channel == "feishu":
-        return {"msg_type": "text", "content": {"text": alert_text(alert)}}
+        return {"msg_type": "text", "content": {"text": content}}
     return alert
 
 
-def notify_channels(urls, alert: dict[str, Any]) -> None:
+def notify_channels(urls, alert: dict[str, Any], text: str | None = None) -> None:
     """把告警推送到群机器人列表（钉钉/飞书/企业微信自动识别）。"""
     for url in urls:
         try:
-            httpx.post(url, json=build_payload(detect_channel(url), alert), timeout=3)
+            httpx.post(url, json=build_payload(detect_channel(url), alert, text), timeout=3)
         except Exception as exc:
             logger.warning("告警通知推送失败 %s: %s", url, exc)
 

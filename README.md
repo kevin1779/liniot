@@ -104,6 +104,7 @@ bash examples/curl-demo.sh   # 纯 API 演示：注册→上报→规则→告�
 | `LINIOT_DB_URL` | 空 | PostgreSQL DSN（如 `postgresql://liniot:liniot@127.0.0.1:5432/liniot`）；设置后改用 PG 后端（需 `pip install ".[postgres]"`）。库内装有 TimescaleDB 扩展时自动将 telemetry 转为 hypertable（按天分块，未装则普通表），compose 提供 `--profile postgres / timescale` 变体 |
 | `LINIOT_RETENTION` | `20000` | 每设备遥测保留条数 |
 | `LINIOT_ONLINE_TIMEOUT` | `90` | 超过该秒数无上报视为离线 |
+| `LINIOT_DEVICE_EVENTS` | `on` | 设备上下线事件推送：状态翻转时群机器人收到「设备 名称 (id) 已离线/已上线」，通用回调收到 `{"event", "device_id", "device_name", "ts"}` JSON；`off`/`0`/`false` 关闭 |
 | `LINIOT_AUTH_TOKEN` | 空 | 访问令牌；设置后所有 API 与 WebSocket 需携带（仪表盘弹验证框） |
 | `LINIOT_API_TOKENS` | 空 | 多用户令牌 `名称:令牌:角色`，分号分隔；角色 ∈ admin/device/viewer。也可不改环境变量，直接在仪表盘「访问令牌」页动态签发/吊销（默认开放模式下签发首个令牌即开启鉴权） |
 | `LINIOT_WEBHOOK_URL` | 空 | 告警回调地址（POST JSON） |
