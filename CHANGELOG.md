@@ -1,5 +1,13 @@
 # Changelog
 
+## 未发布
+
+- 告警推送文案模板：`LINIOT_ALERT_TEMPLATE` 自定义发往钉钉/飞书/企微群机器人的
+  文案，支持 `{device_id}` `{device_name}` `{message}` `{level}` `{metric}`
+  `{value}` `{ts}` 占位符（告警无该字段时按空字符串渲染）；未知占位符或模板
+  渲染失败一律回退内置文案并记录 warning，推送通道不受影响；未配置时行为
+  与旧版本逐字节一致，通用 JSON 透传回调（`LINIOT_WEBHOOK_URL`）不受影响
+
 ## 0.6.0 (2026-11-18)
 
 - TimescaleDB 支持：PG 后端启动时自动探测 timescaledb 扩展，存在则将
